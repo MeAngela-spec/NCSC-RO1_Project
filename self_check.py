@@ -1,5 +1,7 @@
 """Packaged app verification with fictional records in a temporary workspace."""
 import http.cookiejar
+from contextlib import closing
+import gc
 from http.server import ThreadingHTTPServer
 import io
 import json
@@ -160,14 +162,16 @@ def run():
             with ZipFile(backup) as archive:
                 archive.extractall(restored_folder)
             import_workspace(restored_folder / "data", home / "imported")
-            with sqlite3.connect(home / "imported/register.sqlite3") as restored_db:
+            with closing(sqlite3.connect(home / "imported/register.sqlite3")) as restored_db:
                 assert restored_db.execute("SELECT COUNT(*) FROM records").fetchone()[0] == len(admin.request("/api/register"))
             assert (home / "imported/files" / file_id).read_bytes() == pdf_source
             passed("Consistent live backup and safe existing-workspace import")
             service.stop()
             service = None
+            gc.collect()
             report["ok"] = True
     except Exception as error:
+        report["ok"] = False
         report["error"] = type(error).__name__ + ": " + str(error)
         report["traceback"] = traceback.format_exc()
     finally:

@@ -35,7 +35,7 @@ Source: "..\dist\NCSCRO1\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdi
 [Icons]
 Name: "{group}\NCSC RO1"; Filename: "{app}\NCSCRO1.exe"; AppUserModelID: "NCSC.RO1.DocumentTracking"
 Name: "{group}\Connection settings"; Filename: "{app}\NCSCRO1.exe"; Parameters: "--configure"
-Name: "{group}\Desktop guide"; Filename: "{app}\_internal\DESKTOP-GUIDE.md"
+Name: "{group}\Desktop guide"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\_internal\DESKTOP-GUIDE.md"""
 Name: "{autodesktop}\NCSC RO1"; Filename: "{app}\NCSCRO1.exe"; Tasks: desktopicon
 Name: "{userstartup}\NCSC RO1"; Filename: "{app}\NCSCRO1.exe"; Tasks: startup
 
