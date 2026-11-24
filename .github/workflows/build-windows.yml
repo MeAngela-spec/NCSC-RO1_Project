@@ -1,0 +1,53 @@
+name: Verify and build Windows installer
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          architecture: x64
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Validate source and runtime helpers
+        run: |
+          python -m compileall -q app.py desktop.py desktop_runtime.py self_check.py version.py
+          python -m unittest discover -s tests -v
+          node --check assets/app.js
+          node --check assets/printing.js
+          node --check assets/matrix-print.js
+      - name: Build, test and package the offline installer
+        shell: pwsh
+        run: ./packaging/build-windows.ps1
+      - name: Upload verified installer
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: NCSC-RO1-Windows-Installer
+          path: installer-output/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Upload build diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: NCSC-RO1-build-diagnostics
+          path: |
+            build/*self-test.json
+            build/*extraction.log
+            build/NCSCRO1/warn-*.txt
+          if-no-files-found: ignore
+          retention-days: 7

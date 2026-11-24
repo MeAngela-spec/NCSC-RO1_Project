@@ -20,16 +20,23 @@ their own service access. Several departments sharing one workspace need a
 reachable office LAN and an awake host; installing separate database copies
 does not automatically synchronize them.
 
-## Installer work
+## Windows installer
 
-The target is a Windows installer bundling Python and application dependencies,
-so office users will not install Python or run pip themselves. The repository
-currently contains the application source; an installer has not been built or
-published yet. Host/client setup and desktop packaging are the next stage.
+The chosen setup is a shared workspace over the office LAN. `desktop.py` adds
+host/client connection settings, a persistent data directory, host controls,
+safe existing-data import and consistent backup. The Windows build bundles
+Python, application dependencies and a private print converter. Office users
+do not install Python or run pip themselves.
 
-Exact-template PDF conversion currently uses Microsoft Word or LibreOffice on
-the host. The Windows packaging stage must address this dependency as well.
-Print matrix itself works without that converter.
+The Actions workflow builds on Windows and verifies both the frozen executable
+and the installed application before uploading an installer artifact. Download
+only a successful build's **NCSC-RO1-Windows-Installer** artifact. A source
+commit alone is not evidence of a completed installer. See [DESKTOP-GUIDE.md](DESKTOP-GUIDE.md)
+for setup, migration, office networking and updates.
+
+For source development, exact-template PDF conversion can use locally installed
+Word or LibreOffice. The full Windows installer includes its own converter.
+The program retains the existing browser-based document interface.
 
 ## Developer setup on Windows
 
@@ -44,6 +51,7 @@ py -3.12 -m venv .venv
 ```
 
 Open `http://127.0.0.1:8765` and create the first administrator locally.
+To run the desktop connection launcher from source, use `python desktop.py`.
 See `START-HERE.txt` for the existing application's workflows. Legacy batch
 launchers expect the offline wheels supplied in the previous ZIP distribution;
 those third-party packages are not committed here. The commands above install

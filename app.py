@@ -22,6 +22,7 @@ import threading
 import time
 import urllib.parse
 import uuid
+import ipaddress
 from datetime import datetime
 from contextlib import contextmanager
 from email.parser import BytesParser
@@ -601,18 +602,23 @@ def original_body_tables(children, namespaces):
     return [child for child in children if child.tag == "{"+namespaces["w"]+"}tbl"]
 
 def office_converter():
+    for filename in ("soffice.com", "soffice.exe"):
+        private = ROOT / "libreoffice/program" / filename
+        if private.is_file():
+            return str(private)
     executable = shutil.which("soffice") or shutil.which("libreoffice")
     if executable:
         return executable
     if os.name == "nt":
         for env in ("PROGRAMFILES", "PROGRAMFILES(X86)"):
-            candidate = Path(os.environ.get(env, "")) / "LibreOffice/program/soffice.exe"
-            if candidate.is_file():
-                return str(candidate)
+            for filename in ("soffice.com", "soffice.exe"):
+                candidate = Path(os.environ.get(env, "")) / "LibreOffice/program" / filename
+                if candidate.is_file():
+                    return str(candidate)
     return None
 
 def render_slip_pdf(docx_bytes):
-    """Export the original filled template through an installed office renderer."""
+    """Export through the bundled renderer, or the developer's office renderer."""
     converter = office_converter()
     with PRINT_LOCK, tempfile.TemporaryDirectory(prefix="ncsc-print-") as folder:
         directory = Path(folder)
@@ -631,7 +637,8 @@ def render_slip_pdf(docx_bytes):
         else:
             raise ValueError("Install LibreOffice on the host for PDF print preview, or download the filled Word template and print it in Word.")
         try:
-            result = subprocess.run(command, capture_output=True, timeout=60, check=False)
+            result = subprocess.run(command, capture_output=True, timeout=90, check=False,
+                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         except subprocess.TimeoutExpired:
             raise ValueError("The office application took too long. Download the Word template to print it.")
         if result.returncode or not destination.is_file():
@@ -836,6 +843,12 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(200, file.read_bytes(), mimetypes.guess_type(file.name)[0] or "application/octet-stream")
             return
         auth = self.session()
+        if path == "/api/health":
+            from version import APP_VERSION, PRODUCT
+            with connect() as c:
+                configured = bool(c.execute("SELECT 1 FROM users LIMIT 1").fetchone())
+            self.respond(200, {"product":PRODUCT, "version":APP_VERSION, "configured":configured})
+            return
         if path == "/api/me":
             with connect() as c:
                 setup = c.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
@@ -1000,6 +1013,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/api/setup", "/api/login"):
             with self.write_transaction() as c:
                 if path == "/api/setup":
+                    if not ipaddress.ip_address(self.client_address[0]).is_loopback:
+                        raise PermissionError("Create the first administrator on the host PC using http://127.0.0.1:" + str(self.server.server_port) + ". Staff can connect after setup.")
                     if c.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
                         self.respond(403, {"error": "Setup is already complete."})
                         return

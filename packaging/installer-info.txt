@@ -1,0 +1,21 @@
+NCSC RO1 - Office test build
+
+This installer includes Python, application packages and a private print
+converter. Office users do not install Python, pip or an office suite for it.
+An installed Microsoft Edge or Chrome browser opens the system's app window.
+
+Choose Host workspace on one PC. Other departments choose Connect to office
+host and enter its address once. They must use a reachable office LAN/Wi-Fi.
+The host must remain on, awake and running. Internet hosting is not required.
+The host's Windows Firewall must allow the app on the office Private network;
+agency IT may need to permit the selected TCP port (default 8765).
+
+The first administrator is created locally on the host PC. Existing office
+records are not included. Import an old data folder before starting a new
+host if you want to retain its accounts and records.
+
+Uninstalling/updating the program keeps the separate workspace data folder.
+Make regular backups from the host's Create backup button.
+
+This initial build needs an actual office-PC, LAN and printer trial before
+rollout. It is not digitally signed as an NCSC-published software release.
