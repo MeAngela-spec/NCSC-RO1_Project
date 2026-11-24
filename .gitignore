@@ -1,0 +1,33 @@
+# Office data stays on the host PC
+/data/
+**/data/
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+.env
+.env.*
+!.env.example
+
+# Local Python installation and caches
+.venv/
+venv/
+vendor/
+wheels/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Installer output and local tools
+build/
+dist/
+installer-output/
+*.log
+*.tmp
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
