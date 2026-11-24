@@ -1,0 +1,34 @@
+LOGIN BACKGROUND
+Asset path  assets/login-seniors.png
+Reference  BG2.jpg supplied by the user
+The built-in image editing tool removed press-release typography, red bars,
+border and upper logo, and extended the indoor background.
+
+Final edit prompt
+Create a clean photographic login background using the exact five senior
+citizens in the lower part of the supplied image. Remove headline text,
+PRESS RELEASE text, the upper logo, red bars, border and graphic typography.
+Preserve the original faces, expressions, poses, clothes and hands. Extend
+the softly blurred indoor event background with neutral light tones. Keep
+the group naturally photographed, with breathing room above their heads.
+No overlay text, logos, border or watermark.
+
+EXPORT SEAL
+Asset path  assets/seal.png
+PNG transcode of the supplied NCSC seal, with identical pixels, so Excel and
+Word can embed the seal in their supported image format.
+
+ROUTING SLIP
+The supplied Editable Routing and Tracking Slip Version 2 copy.docx is
+unchanged as templates/routing-slip.docx. Printing fills text in copies
+while retaining its logos, headers, column layout and action legend.
+Filled copies use a consistent 10 pt font. Combined printing replaces
+unused blank rows with one row for each selected document.
+
+PRINT MATRIX LETTERHEAD (23 NOVEMBER 2026)
+Asset path  assets/matrix-letterhead.png
+Source  Header of the attached Routing-Slip.docx
+The document was rendered to PDF and only its official header was cropped at
+216 dpi. Both original logos, typography and contact information are retained.
+The filled subject, DRN, table and signatures are excluded from this image.
+The bundled original templates/routing-slip.docx remains unchanged.

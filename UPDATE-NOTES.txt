@@ -1,0 +1,158 @@
+23 NOVEMBER 2026 UPDATE - READABLE MATRIX AND RECORD / ACCOUNT MANAGEMENT
+
+PRINT MATRIX
+A4 landscape sections replace the compressed full-width table. Routing,
+follow-up and imported extra fields repeat No., Ref. No. and Subject. Official
+letterhead is copied exactly from the attached Routing-Slip.docx. Headers
+repeat on continuation pages; all table text uses Arial 10 pt. Values wrap
+without truncation. Automatic native printing and a fallback button work in
+a dedicated print tab. Matrix printing does not need Word or LibreOffice.
+The original routing slip and selected-row routing sheet remain unchanged.
+
+DOCUMENT DELETION
+Select documents > click rows > Delete selected > review and confirm.
+Normal deletion preserves files/history for Restore in Deleted documents.
+The batch is atomic: a stale row cancels the whole batch without partial moves.
+Administrators also get Delete in Deleted documents. Permanent deletion requires
+the exact reference number, removes owned files/history and cannot be restored.
+Shared imports stay while other documents use them. Empty source groups are
+removed after their final record. Retried imports cannot resurrect purged rows.
+A minimal administrator deletion log remains; generated references are not reset.
+
+STAFF ACCOUNTS
+Archive account removes access while retaining attribution and assignments.
+Current / Archived account lists support Archive and Restore account. Archived
+sessions end immediately. Restored accounts are disabled until reviewed and
+enabled through Edit. Existing Disable still supports temporary suspension.
+Self-archive and removal of the last active administrator are prevented.
+
+INTERFACE
+Smaller blue View and green Edit buttons stay aligned in the final Action
+column. Login branding, page title, sign-in heading, labels and spacing have
+one clear hierarchy. Existing senior citizen photograph stays bundled offline.
+Write responses now wait for database commit before allowing a refresh.
+
+INSTALL / UPDATE
+Stop the old server. Back up the ENTIRE old data folder. Extract this ZIP to a
+new folder, then copy your old data folder beside the new app.py. Run the same
+START_WINDOWS.bat. Existing accounts, passwords, records and files are kept;
+schema migration runs automatically. Do not run both copies on the same data.
+Keep the full package together, including matrix_print.py and assets.
+A first-time installation uses the existing setup instructions in START-HERE.txt.
+No real or test records, passwords, database, or virtual environment is packaged.
+
+VERIFICATION
+Python HTTP and interface DOM tests used fictional data on isolated databases.
+Checks covered deletion permissions / atomicity / cleanup, staff archive and
+restoration, session invalidation, CSRF, source import retry protection,
+Excel / Word exports, and repeatable upgrade preserving existing data.
+Print PDFs were visually inspected; 30-row and oversized-entry layouts retained
+all values and repeated their headings with 10 pt table text.
+Native Windows print dialogs and physical output need verification on the
+actual office computer. A full graphical browser was unavailable here.
+
+--- PREVIOUS UPDATE ---
+
+20 NOVEMBER 2026 UPDATE - SETTINGS, SOURCE INTAKE AND DIRECT PRINTING
+
+SIDEBAR AND DASHBOARD
+Overview is now Dashboard. The NCSC blue sidebar uses white labels, a red
+active marker and clear page highlights. Settings contains Account management
+(admin), Change password, Quick guide and Deleted documents (records/admin).
+The profile/account name is above Log out. The duplicate Records desk / Open
+quick guide dashboard panel has been removed. Recent documents uses the width.
+
+DOCUMENT ACTIONS
+No. stays first. Action is now the final column after every imported field,
+with a blue View button and a green Edit button. Actions remain visible while
+scrolling horizontally. Row-selection mode and selection across filters remain.
+
+NEW DOCUMENT SOURCE IMPORT
+New document > Import email or file reads saved EML/MSG emails, PDF, DOCX,
+Excel/CSV, text or other original files. Subject and detected data are editable
+before registration. Emails show sender, recipient, sent date and message;
+original emails and extracted attachments are saved with the registered record.
+Email/PDF files can be previewed/downloaded from View Document. File upload
+preserves original bytes, including the message/rfc822 email content type.
+Excel/CSV offers one source-row choice with extra columns retained. Main
+Import file still imports complete matrices. Source references do not replace
+automatic new references. Manual edits survive source-row changes. Scans use
+the filename and require manual review. Intake does not connect to a live inbox.
+A fictional samples/demo-email.eml is included to try the complete workflow.
+
+DIRECT PRINT FLOW
+Print slip and Print selected rows prepare the exact original template, then
+automatically request the browser's native print dialog. There is no PDF
+viewer toolbar step. All pages load before printing. A fallback Open print
+dialog / Print again control is available if automatic printing is blocked.
+The original template asset is unchanged. Combined printing still puts two or
+more selected documents on the same sheet when they fit. Word/LibreOffice on
+the host remains necessary for original-template conversion.
+
+VALIDATION AND LIMITS
+47 backend integration checks passed, plus tests for message/rfc822 byte
+preservation, Outlook Unicode/ANSI MSG extraction and automatic print flow.
+Browser checks confirmed the new navigation, role-appropriate Settings,
+email/PDF source registration/viewing, adaptive source-row selection, manual
+field retention and combined selected rows (two documents on one page).
+The managed test browser disables Print in its menu and shortcut, so the
+native printer dialog and physical printer output were not verified here.
+Test those on office Chrome/Edge with the host's Word/LibreOffice installed.
+The Windows launchers, Word COM automation and agency LAN need host testing.
+
+UPGRADE WITHOUT LOSING RECORDS
+Stop the old app and back up its entire data folder. Extract this ZIP to a
+new folder, copy the old data folder next to the new app.py, then run
+START_WINDOWS.bat. It installs any newly bundled dependency offline and
+upgrades the existing database. Existing accounts/passwords remain valid.
+Read START-HERE.txt for the complete workflow.
+
+PREVIOUS FEATURES RETAINED
+20 NOVEMBER 2026 UPDATE
+
+SELECT DOCUMENTS
+The register uses a deliberate Select documents mode with clickable,
+highlighted rows. Enter and Space work on focused rows. No document
+checkboxes are displayed. A print tray shows selected references and
+supports removing choices. Selection remains across searches and filters.
+
+COMBINED PRINTING
+Print selected rows puts different documents into consecutive rows on the
+same original NCSC routing layout. Each row identifies its own reference,
+subject and routing details. A sample of two documents produces one page.
+Longer lists share pages and continue as needed. The selected order is kept.
+Individual Print slip continues to show one document's routing history.
+
+CONSISTENT TYPE
+Filled routing fields and report table text use Arial 10 pt. The interface
+uses Arial with consistent 14 px field, row and control text. Headings and
+helper text keep deliberate hierarchy. The original agency letterhead and
+action legend are retained. Dates avoid broken year digits.
+
+COMPACT EXPORTS
+The export dialog is 520 px wide and fits its content. PDF and Word offer
+Fit short lists to content and A4 landscape. Short report pages use a reduced
+height. Additional fields can share the main page instead of forcing a new
+page. Existing NCSC branding and Excel/PDF/Word formats remain included.
+
+ROW NUMBERS FIRST
+No. leads the register, import preview and exported reports. Source serial
+numbers are preserved when available and are not duplicated at the end.
+Row/serial fields are read-only in View/Edit and omitted from New document.
+
+TESTED
+Backend checks verified two documents in two rows on one page, selected
+ordering, shared-page continuation, input font sizes, retained NCSC header
+parts, numbering in all export formats, compact and A4 pages, access control
+and unchanged stored records. Chrome checks verified mouse/keyboard row
+selection, retained selection after filtering, export with no visible search
+matches, numbered adaptive import preview, compact export download, combined
+printing and consistent input fonts. PDF/Word layouts were rendered and
+reviewed. Windows Word automation and physical printing require checking
+on the actual office computer.
+
+UPGRADE
+Stop the old app and back up its entire data folder. Extract this ZIP to a
+new folder, copy the old data folder next to the new app.py, then run
+START_WINDOWS.bat. Existing accounts and passwords continue to work.
+Read START-HERE.txt for full instructions.

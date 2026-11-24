@@ -1,0 +1,410 @@
+NCSC RO1 DOCUMENT ROUTING AND TRACKING
+Python offline office-network prototype - 23 November 2026 update
+
+FIRST RUN ON WINDOWS
+1. Install Python 3.12 64-bit on the host PC.
+2. Extract the entire ZIP to a writable folder and open ncsc_python.
+3. Double-click START_WINDOWS.bat. Included Python packages install offline.
+4. The browser opens http://127.0.0.1:8765.
+5. Enter your full name, personal username and a password of at least
+   8 characters. This creates the first administrator account under ORD.
+6. Download your account recovery code and keep it secure.
+7. Open Settings > Account management and create individual accounts for staff.
+   Set each person's full name, username, department code and access.
+8. Give the initial password and recovery code directly to the account owner.
+9. Try samples/demo-matrix.xlsx or samples/adaptive-layout.xlsx.
+10. Keep the command window open while the system is being used.
+
+ACCOUNT MANAGEMENT
+Each employee signs in using an individual account. Department is the group
+used for the work queue and document access. It does not need a second login.
+
+Administrator manages records, imports, settings and user accounts.
+Records officer can manage records, import and route across departments.
+Department staff sees documents assigned to their department and updates
+Action Taken, status, Date Submitted and MOV fields.
+Office reviewer can read and print all office records.
+
+Account management creates/edits staff accounts, assigns departments and
+access, archives/restores accounts, disables/reactivates accounts and issues
+recovery codes. Disabling
+immediately blocks login and current sessions. The current user cannot
+disable their own account. One active administrator is required.
+
+Activity entries include staff name, username, department and timestamp.
+Archive staff accounts when they leave; Disable is for temporary suspension.
+History remains stored under the original editor identity.
+Forgot password uses the individual username and saved recovery code.
+A successful reset issues a replacement code. If the owner loses the code,
+an administrator generates a replacement and gives it directly to the owner.
+
+UPGRADING EXISTING DATA AND ACCOUNTS
+1. Stop the old server using Ctrl+C and back up its entire data folder.
+2. Extract the update to a NEW folder.
+3. Copy the old data folder next to app.py in the new ncsc_python folder.
+4. Run START_WINDOWS.bat. Existing accounts, passwords, files and records
+   are retained and the database is upgraded automatically.
+5. Log in with your existing account. Keep the old data backup.
+6. For earlier shared department accounts, create individual staff accounts
+   first, then disable old shared accounts once staff have migrated.
+   Existing shared accounts are labelled Shared department (legacy).
+
+DAILY DOCUMENT FLOW
+1. Import a file and review its detected worksheets, columns and rows.
+2. Check the header row and routing-field mapping, then confirm the import.
+3. Alternatively, choose New document to register correspondence manually,
+   or choose Import email or file inside that form to fill available details.
+   Review the fields before Register document. Action Taken and MOV 1/2
+   are added after registration.
+4. View a document, choose Edit, set Assigned to and Requested Actions,
+   and save. An assigned document becomes Routed automatically.
+5. A staff member signs in and sees Assigned documents for their department.
+6. Acknowledge receipt, enter Action Taken, update status and add MOVs.
+7. Save the record. Use Print slip when a paper routing form is needed.
+8. Use Refresh to load colleagues' latest changes.
+9. Choose Select documents, then click the rows you need. Choose
+   Print selected rows to put different documents on a shared NCSC sheet.
+
+WORKSPACE NAVIGATION
+Dashboard is the landing page, with summary counts and recent documents.
+Document register holds the tracking matrix. Imported files lists worksheets.
+Settings expands in the blue sidebar to show Account management (admin),
+Change password, Quick guide, and Deleted documents (records/admin).
+Your account name and department appear above Log out at the sidebar bottom.
+The Action column follows all data columns and stays visible at the right.
+View is blue; Edit is green. No. remains first. Selection mode replaces
+these actions temporarily with a row-selection indicator.
+
+NEW DOCUMENT FROM EMAIL OR FILE
+1. Choose New document > Import email or file.
+2. Select a saved email (.eml or .msg), PDF, DOCX, Excel XLSX, CSV, text,
+   image or another original document (up to 25 MB).
+3. Subject fills from the email Subject, an explicit Subject/Re line, a
+   document title, or the filename. Review it and finish the routing fields.
+   Manual edits are kept when replacing a source or changing its source row.
+4. Email sender, recipient, sent date, message and extracted attachments
+   are shown for review. No department is guessed from email text.
+5. For Excel/CSV, choose the one source row to register. Extra columns are
+   included after the core tracking fields. A new reference is generated;
+   the original reference remains in Source details. For a full matrix,
+   use the main Import file workflow instead.
+6. Choose Register document. The record, original file, email attachments
+   and source metadata are saved together. Repeating the same source save
+   after a network retry returns the existing record instead of a duplicate.
+7. View Document shows Source email/file, message text and attachments.
+   Click an attachment to preview it or download its original.
+
+Try samples/demo-email.eml. It uses fictional example.invalid addresses.
+Email intake reads local saved files. It does not sign into Gmail/Outlook,
+receive live inbox updates or send emails. No internet is needed to read
+saved emails and their attached files. External URLs still need internet.
+Incoming email attachments are source files. Add an actual proof of action
+under MOV 1 or MOV 2 after the department has performed the work.
+
+Readable PDFs are inspected for text from up to 10 pages; the full original
+is retained. Scans/images use their filename and need manual encoding.
+OCR and automatic understanding of every unstructured file are not included.
+Common Outlook Unicode/ANSI MSG streams are supported. Embedded Outlook
+items that cannot be extracted remain in the original MSG with a notice.
+Up to 100 email attachments / 25 MB of decoded attachments are extracted;
+the complete original email is always retained. Unsaved source previews
+expire after 24 hours and are removed on a later source upload.
+Original workbooks are available to records/admin staff, keeping unrelated
+rows out of departmental access. Source files for a single correspondence
+follow that document's access permissions.
+
+VIEW AND EDIT
+View opens a read-only record. Clicking a Subject also opens View.
+Edit opens fields allowed by the user's role. Save changes returns to View.
+Cancel editing returns to View and asks before discarding unsaved edits.
+Details & routing shows tracking fields followed by extra imported fields.
+Files & MOVs provides supporting uploads, previews and original downloads.
+Activity history identifies the signed-in editor automatically. No
+Responsible staff entry is needed. Assignment uses department codes such
+as AFS, OPS, ORD or AFS / OPS.
+
+REFERENCE NUMBERS AND ACTIONS
+Ref. No. is automatic for new records, for example RO1-2026-000001.
+There is no editable Ref. No. textbox. Existing nonempty imported references
+remain unchanged; missing references are generated on import.
+
+Action Taken starts with the nine actions from the supplied NCSC slip
+1 Approved
+2 Disapproved
+3 Request Initial/Signature
+4 Appropriate Staff Action
+5 Comment/Recommendation
+6 Rewrite/Redraft
+7 For Reference/Information
+8 See Me / Call Me
+9 File
+
+Other / specify opens common progress actions, including Under review and
+Forwarded for approval. Choose Enter custom text to type another action.
+The editor's account is recorded automatically in Activity history.
+
+ADAPTIVE IMPORT AND SOURCE NAMES
+No. is displayed first in the register, import preview and exports. Source
+row/serial numbers are preserved when present; otherwise row positions are
+shown automatically. Number fields are read-only in the document form.
+The number is not duplicated as a trailing column.
+
+The nine tracking fields follow No. in this order
+Hard Copy Routed, Ref. No., Subject, Assigned to, Requested Actions,
+Action Taken, MOV 1, MOV 2, Status.
+
+Equivalent headers merge into the matching field. Hard Copy Route becomes
+Hard Copy Routed. Action Taken (AFS) and Action Taken (OPS) become one
+Action Taken field, preserving distinct values. Duplicate reference columns
+merge. Extra meaningful fields follow the standard fields in source order.
+All worksheets uses sorted extra fields. Empty unnamed columns are omitted;
+useful unnamed values remain as Source row no. or Imported field N.
+Merged Excel headers are supported. Original imported files are retained.
+
+Source names use the actual uploaded filename and worksheet/table name.
+A manual registration outside a selected worksheet uses its Subject as its
+source name. Earlier generic Incoming documents groups are named from
+the original file or first subject during upgrade.
+
+The preview detects likely header rows. Change Header row for this worksheet
+and choose Re-read header rows if necessary. XLSX overrides apply to each
+worksheet independently. Check routing and print fields for unfamiliar
+headings. Imported files provides Worksheet settings for adding columns
+and adjusting mapping. New records can use a selected worksheet's columns.
+
+XLSX imports cached formula results and visible hyperlink targets. The
+original workbook retains its formulas and formatting. CSV supports UTF-8
+and Windows-1252 with comma, semicolon or tab delimiters. Save older .xls
+files as .xlsx for table extraction.
+
+Readable PDF tables are extracted when detectable. Other readable pages
+become text records. Scanned PDFs require manual encoding because OCR is
+not bundled. DOCX imports tables and paragraphs. TXT imports nonempty lines.
+Images and other files create a file record with the original attached.
+Review the preview and mapping for every new file layout.
+
+A confirmed upload creates new worksheets. Importing the same file again
+creates another import. Retrying the same confirmation safely reuses it.
+Maximum request/upload size is 25 MB. Maximum import is 10,000 rows.
+
+MOV 1 AND MOV 2
+Enter links in the MOV 1 or MOV 2 field while editing. To upload a file,
+choose Files & MOVs, attachment type MOV, and the target MOV 1 or MOV 2
+column. Save pending edits before uploading.
+
+The uploaded filename appears immediately in that MOV column in the
+register and View document. Links and files can coexist in each MOV column.
+Document uploads appear under Document attachments. The original import
+also remains downloadable by authorized records staff.
+
+Click a filename to preview it, with Download original file available.
+Previews support PDF, JPG/PNG/GIF/WebP images, Word DOCX, Excel XLSX,
+EML/MSG email text and plain text.
+Word previews need Microsoft Word or LibreOffice on the host. Excel preview
+shows up to 200 rows and 30 columns per worksheet. Download for the entire
+workbook and its original formatting. Unsupported files can be downloaded
+and opened in the appropriate desktop application.
+
+Supporting links open their source service for viewing or downloading.
+External links need internet and source-service permissions.
+Exports include supporting link text and uploaded filenames. Uploaded
+file binaries are downloaded individually from their document record.
+
+PRINTING THE ORIGINAL ROUTING SLIP
+Print slip uses the exact supplied Editable Routing and Tracking Slip
+Version 2 Word template. It fills saved Subject, DRN and routing entries.
+Original logos, headers, table sizes, layout and action legend remain.
+Signature areas stay blank for actual signatures. More than eleven routing
+entries continue on another copy of the original slip.
+
+Choose Print slip in View or Edit. A print tab prepares the saved slip and
+automatically calls the browser's native print dialog, where printer,
+copies, pages and other print settings appear. There is no PDF viewer
+printing step and no preview/download chooser. Allow the app's new tab if
+your browser blocks it. The selected printer is on the user's own device.
+
+The exact filled template is converted by Word/LibreOffice on the host,
+then rendered to 216-dpi page images for printing at their original paper
+size. Wait for all pages to load before the print dialog opens. The images
+are temporary, tied to the requesting account and expire after 15 minutes.
+They are not permanent copies in the records database.
+
+If the browser blocks automatic printing, use Open print dialog on that tab.
+After closing/canceling a print dialog, Print again reopens it. Word template
+download stays in the document's View/Edit page. Printing still requires
+the printer driver and permission to print on that computer; the app
+cannot override a managed browser policy that disables printing.
+
+COMBINED SELECTED ROWS
+Choose Select documents in the tracking matrix. Click anywhere on a row's
+plain cells to add or remove the document. Selected rows are highlighted,
+and the print tray lists their reference numbers. A focused row can be
+selected with Enter or Space. Add all shown adds current filtered rows.
+Remove a reference chip or choose Clear selection to remove choices.
+Done selecting restores the normal View/Edit actions.
+
+Selections stay when you search or change worksheet/status filters. The
+selected count and reference chips show all chosen documents. The selected
+order follows the order in which you picked them.
+
+Print selected rows creates a combined NCSC routing sheet. One selected
+document occupies one row, with its own reference number, subject, assigned
+office, date and actions. Two or more documents share the same page when
+they fit. Longer batches continue on additional NCSC sheets. Extra empty
+form rows are removed from the combined copy. Print up to 100 documents.
+The original NCSC header, table columns and action legend remain included.
+
+Print slip inside an individual document continues to print that document's
+routing history. Filled fields on both forms use Arial 10 pt. Dates use
+an intentional day/month line followed by the full year. The original
+unfilled template file is retained.
+
+Only the host needs Microsoft Word for Windows or LibreOffice for PDF
+conversion. LibreOffice is detected on PATH or in its normal Windows install
+folder. Word conversion uses the included print-with-word.ps1 script.
+The office application is separate from the bundled Python packages.
+
+Word template download remains available in View/Edit even without a host
+PDF converter. Open that filled DOCX in Word and choose File > Print.
+Very long subjects or routing notes may flow onto additional pages.
+
+NCSC BRANDED EXPORTS
+The Export documents dialog is a compact window with fields sized to its
+content. Choose Export file and select the documents and file format. Available
+formats are Excel (.xlsx), PDF (.pdf), and Word (.docx). Every format includes
+the NCSC seal, agency header, report title and chosen records.
+Export follows the current filters or selected rows, as chosen in the dialog.
+Export selected uses selected rows by default. Export up to 10,000 records.
+
+Excel keeps tracking and extra columns in one worksheet with wrapped text,
+filters, frozen reference columns, a repeated print header and page numbers.
+The wide Excel matrix defaults to A3 landscape for printing. Choose the
+PDF export for a report arranged on A4 landscape pages.
+Imported text beginning with '=' remains plain text, never a formula.
+PDF and Word use landscape pages with a repeating NCSC header. No. is the
+first column. Report table text uses Arial 10 pt. Small reports default to
+Fit short lists to content, which reduces page height to avoid excessive
+blank space. Additional fields stay below the main table on the same page
+when the short report fits. Longer reports continue on further pages.
+Choose A4 landscape in Page layout for standard-size office printing.
+
+PDF export needs Microsoft Word or LibreOffice on the host. Word and Excel
+downloads work without the PDF converter. Original supporting file binaries
+are separate downloads; report exports include their filenames and links.
+
+READABLE PRINT MATRIX
+Print matrix prints the current filtered rows on A4 landscape pages. It opens
+an authenticated print tab and calls the browser print dialog automatically.
+If automatic printing is blocked, choose Open print dialog on that tab.
+Microsoft Word / LibreOffice is not required for Print matrix.
+
+The exact official letterhead from the supplied Routing-Slip.docx is bundled
+locally, including both logos and its contact details. Table entries and column
+headings use Arial 10 pt; only the report title uses a larger heading size.
+No. comes first and reference numbers have sufficient space.
+
+Wide matrices use readable sections instead of shrinking every column:
+1. Routing details: No., Hard Copy Routed, Ref. No., Subject, Assigned to,
+   Requested Actions.
+2. Follow-up: No., Ref. No., Subject, Action Taken, MOV 1, MOV 2, Status.
+3. Additional imported fields continue in groups of up to three columns.
+
+Every section repeats No., Ref. No. and Subject so its rows can be matched.
+The letterhead, report title and column headings repeat on continuation pages.
+Long values wrap and continue; extra fields are not dropped or reduced to a
+tiny font. Leave browser print Scale at 100% and use A4 landscape. Browser
+headers/footers can be turned off if a cleaner official copy is needed.
+
+Use Print selected rows for multiple documents on the original NCSC routing
+sheet. Export selected provides selected Excel, PDF and Word reports.
+
+DELETE AND RESTORE
+Administrators and records officers can move documents to Deleted documents.
+For several records, choose Select documents, click the desired rows, then
+Delete selected. Review the subjects and confirm. All versions are checked
+before any selected document is moved; if a row changed, refresh and retry.
+Selections stay across filters, so check the complete count before confirming.
+Normal deletion preserves attachments and history. Restore returns the record.
+
+Deleted documents has Restore and, for administrators, Delete. Delete opens a
+permanent deletion dialog. Type the exact reference number and confirm Delete
+permanently. This removes that record, its owned attachments and activity
+history. Shared source workbooks remain while another record uses them.
+The last record from an import also removes its empty source group and unused
+original file. A minimal administrator deletion log keeps the reference, actor
+and deletion time; reference numbers are never reused by normal registration.
+Permanent deletion cannot be undone from the app. Back up before using it.
+If Windows temporarily locks a file, cleanup is retried at the next host start.
+
+ARCHIVE STAFF ACCOUNTS
+Settings > Account management has Current accounts and Archived accounts.
+Archive is the office term used to remove a staff member's access. The account
+is removed from the current list, active sessions end and its recovery code
+is cleared. Document activity and assignment identity are retained.
+An administrator cannot archive their own signed-in account or remove the last
+active administrator. Archived usernames remain reserved for their owners.
+Restore account returns it to Current accounts as Disabled. Choose Edit to
+review and enable access; generate a new recovery code when needed.
+Disable remains available for temporary access suspension.
+
+OFFICE NETWORK WITHOUT PUBLIC HOSTING
+1. Complete initial setup on the host through localhost.
+2. Stop that server using Ctrl+C.
+3. Run START_OFFICE_LAN.bat and find the displayed IPv4 address.
+4. Other computers open http://HOST-IP:8765 in Chrome or Edge.
+5. All computers must use the same reachable office LAN or Wi-Fi.
+6. The host stays on, awake and connected, with the server running.
+   Only the host needs Python and the optional office PDF converter.
+7. If Windows Firewall prompts, allow Python on the office Private network.
+   Agency IT may need to permit TCP port 8765 within that network.
+
+Login, records, uploaded files and local printing work without internet.
+External links need internet and permissions from their source services.
+This remains a Python local web application shared over the office LAN.
+
+BACKUP AND VERIFICATION
+Stop the server and copy its ENTIRE data folder for a consistent backup.
+Restore by stopping the server and replacing that folder with the backup.
+Migrations preserve existing records, accounts, passwords, files and history.
+
+Concurrent saves are checked to prevent silent overwrites. Sessions expire
+after 8 hours of inactivity. Restarting the server logs users out. Records
+and files persist. The delivered package has no demo accounts or test data.
+
+Earlier verification used Python and Chromium on Linux with fictional records.
+Backend checks covered authentication, role/department restrictions, email
+and file intake, original-byte retention, source row selection, adaptive
+columns, retry protection, audit identity, exports, original-template
+printing and source/print job access. Browser checks covered Settings,
+Dashboard, View/Edit actions, email/PDF intake and viewing, source-row
+changes, manual-field retention and selected rows across search filters.
+Two documents rendered as two rows on one original routing sheet.
+Automatic print invocation, page loading and error paths were also checked.
+
+23 November update verification used isolated test databases and fictional
+accounts. HTTP checks covered atomic selected deletion, permanent deletion,
+shared import files, source retry protection, archive/restore permissions,
+session invalidation, CSRF, exports and migration from the previous schema.
+Interface tests exercised the JavaScript DOM against real HTTP endpoints.
+Print layouts were rendered to PDF and inspected, including a 30-row matrix,
+extra columns, repeated headings, long entries and consistent 10 pt table text.
+The original routing-slip template has the same checksum as the supplied ZIP.
+A full graphical browser / Windows printer was unavailable for this update.
+
+In the earlier managed test browser, Print was disabled (menu/shortcut included),
+so its native printer dialog could not be opened in this environment.
+Windows Word automation, Windows launcher, office LAN, native print dialog
+and physical printer output must be checked on the actual office computer.
+LibreOffice rendered the original template successfully during testing.
+
+For Mac/Linux or another supported Python version, install requirements.txt
+from your approved package source and run python app.py.
+Bundled offline wheels support Windows 64-bit with Python 3.12.
+
+VISUAL REFERENCES
+The supplied login example informed the split layout. NCSC branding informed
+the navy, red and white palette. The supplied BG2.jpg was cleaned to remove
+press-release text and graphics. The five senior citizens remain visible.
+The cleaned image is bundled locally for offline use.
+Official website https://www.ncsc.gov.ph/
+The supplied NCSC seal and original routing-slip template are included.
