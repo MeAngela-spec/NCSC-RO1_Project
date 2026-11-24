@@ -1,4 +1,12 @@
-LOGIN BACKGROUND
+LOGIN BACKGROUND (24 NOVEMBER 2026)
+Asset path  assets/login-background.jpg
+Source  PhotoGrid_Site_1795504506051.jpg supplied by the user
+The supplied photograph is copied byte-for-byte and bundled for offline use.
+The login page displays its full 2048 x 675 aspect ratio without cover sizing,
+cropping or stretching. CSS blends the empty sky at the top into the page.
+The previous login background below is retained as an unused legacy asset.
+
+LEGACY LOGIN BACKGROUND
 Asset path  assets/login-seniors.png
 Reference  BG2.jpg supplied by the user
 The built-in image editing tool removed press-release typography, red bars,

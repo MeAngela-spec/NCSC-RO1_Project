@@ -127,16 +127,22 @@ function login(setup = false) {
       '<label>Your username<input name="username" required autocomplete="username" placeholder="e.g. maria.santos"></label>' +
       passwordInput('password', 'Password', 'new-password') +
       '<div class="error" id="loginError" role="alert" hidden></div><button class="btn primary login-submit">Create administrator account</button></form>'
-    : '<form id="loginForm" class="stack"><label>Username<input name="username" placeholder="Your staff username" required autocomplete="username" spellcheck="false"></label>' +
+    : '<form id="loginForm" class="stack"><label>Username<input name="username" placeholder="Enter your username" required autocomplete="username" spellcheck="false" autocapitalize="none"></label>' +
       passwordInput('password', 'Password') +
       '<div class="login-links"><button type="button" class="btn link" data-action="forgot">Forgot password?</button></div>' +
-      '<div class="error" id="loginError" role="alert" hidden></div><button class="btn primary login-submit">Log in</button></form>';
-  $('app').innerHTML = '<main class="login"><section class="login-scene" aria-label="NCSC senior citizens"><div class="login-brand">' +
-    '<img src="/assets/logo.jpg" alt="NCSC seal"><div><span>Republic of the Philippines</span><strong>NATIONAL COMMISSION<br>OF SENIOR CITIZENS</strong></div></div></section>' +
-    '<section class="login-panel"><article class="login-card"><div class="region">NCSC · REGIONAL OFFICE I</div>' +
-    '<h2>' + (setup ? 'Set up your workspace' : 'Sign in to your workspace') + '</h2><p class="intro">' +
-    (setup ? 'Create your personal administrator account under ORD. You can add staff accounts after setup.' : 'Log in with your staff account to access your department workspace.') +
-    '</p>' + form + '<p class="login-foot">For authorized NCSC personnel</p></article></section></main>';
+      '<div class="error" id="loginError" role="alert" hidden></div><button class="btn primary login-submit">Sign in</button></form>';
+  $('app').innerHTML = '<div class="login"><header class="login-header"><div class="login-brand">' +
+    '<img src="/assets/logo.jpg" alt="NCSC seal" width="56" height="56"><div><span>Republic of the Philippines</span>' +
+    '<strong>NATIONAL COMMISSION<br>OF SENIOR CITIZENS</strong></div></div>' +
+    '<div class="login-office"><strong>Regional Office I</strong><span>Document services</span></div></header>' +
+    '<main class="login-stage"><img class="login-background" src="/assets/login-background.jpg" alt="" width="2048" height="675" fetchpriority="high">' +
+    '<section class="login-caption" aria-labelledby="loginTitle"><div class="eyebrow">NCSC RO1 · STAFF PORTAL</div>' +
+    '<h1 id="loginTitle">Document Routing<br>&amp; Tracking System</h1>' +
+    '<p>Organized correspondence.<br> Coordinated action. Better service.</p></section>' +
+    '<section class="login-panel" aria-labelledby="loginHeading"><article class="login-card">' +
+    '<h2 id="loginHeading">' + (setup ? 'Set up your workspace' : 'Welcome back') + '</h2><p class="intro">' +
+    (setup ? 'Create your administrator account under ORD to get started.' : 'Sign in to your NCSC RO1 workspace.') +
+    '</p>' + form + '<p class="login-foot">For authorized NCSC personnel only</p></article></section></main></div>';
   $('loginForm').onsubmit = async e => {
     e.preventDefault();
     e.submitter.disabled = true;
