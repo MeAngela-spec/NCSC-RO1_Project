@@ -130,19 +130,20 @@ function login(setup = false) {
     : '<form id="loginForm" class="stack"><label>Username<input name="username" placeholder="Enter your username" required autocomplete="username" spellcheck="false" autocapitalize="none"></label>' +
       passwordInput('password', 'Password') +
       '<div class="login-links"><button type="button" class="btn link" data-action="forgot">Forgot password?</button></div>' +
-      '<div class="error" id="loginError" role="alert" hidden></div><button class="btn primary login-submit">Sign in</button></form>';
+      '<div class="error" id="loginError" role="alert" hidden></div><button class="btn primary login-submit">Log in</button></form>';
   $('app').innerHTML = '<div class="login"><header class="login-header"><div class="login-brand">' +
-    '<img src="/assets/logo.jpg" alt="NCSC seal" width="56" height="56"><div><span>Republic of the Philippines</span>' +
-    '<strong>NATIONAL COMMISSION<br>OF SENIOR CITIZENS</strong></div></div>' +
-    '<div class="login-office"><strong>Regional Office I</strong><span>Document services</span></div></header>' +
-    '<main class="login-stage"><img class="login-background" src="/assets/login-background.jpg" alt="" width="2048" height="675" fetchpriority="high">' +
-    '<section class="login-caption" aria-labelledby="loginTitle"><div class="eyebrow">NCSC RO1 · STAFF PORTAL</div>' +
-    '<h1 id="loginTitle">Document Routing<br>&amp; Tracking System</h1>' +
-    '<p>Organized correspondence.<br> Coordinated action. Better service.</p></section>' +
-    '<section class="login-panel" aria-labelledby="loginHeading"><article class="login-card">' +
+    '<span class="login-seal"><img src="/assets/ncsc-official-logo.jpg" alt="National Commission of Senior Citizens seal" width="1995" height="1995"></span>' +
+    '<div class="login-agency"><span>Republic of the Philippines</span>' +
+    '<strong>NATIONAL COMMISSION OF SENIOR CITIZENS</strong></div></div>' +
+    '<div class="login-office">Regional Office I</div></header>' +
+    '<main class="login-stage"><article class="login-glass" aria-label="NCSC RO1 workspace access">' +
+    '<section class="login-identity" aria-labelledby="loginTitle">' +
+    '<span class="login-seal login-watermark" aria-hidden="true"><img src="/assets/ncsc-official-logo.jpg" alt="" width="1995" height="1995"></span>' +
+    '<h1 id="loginTitle"><span>Document Routing</span><span>&amp;</span><span>Tracking System</span></h1></section>' +
+    '<section class="login-panel" aria-labelledby="loginHeading">' +
     '<h2 id="loginHeading">' + (setup ? 'Set up your workspace' : 'Welcome back') + '</h2><p class="intro">' +
-    (setup ? 'Create your administrator account under ORD to get started.' : 'Sign in to your NCSC RO1 workspace.') +
-    '</p>' + form + '<p class="login-foot">For authorized NCSC personnel only</p></article></section></main></div>';
+    (setup ? 'Create your administrator account under ORD to get started.' : 'Log in to your workspace') +
+    '</p>' + form + '<p class="login-foot">For authorized NCSC personnel only</p></section></article></main></div>';
   $('loginForm').onsubmit = async e => {
     e.preventDefault();
     e.submitter.disabled = true;

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1672" height="850" viewBox="0 0 1672 850" fill="none">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="1000" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#03164b"/><stop offset=".48" stop-color="#042b9e"/><stop offset="1" stop-color="#031454"/>
+    </linearGradient>
+    <radialGradient id="light" cx="0" cy="0" r="1" gradientTransform="translate(1490 160) rotate(150) scale(1160 700)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#004eff" stop-opacity=".9"/><stop offset="1" stop-color="#004eff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rear" x1="380" y1="420" x2="760" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0753de"/><stop offset=".65" stop-color="#032478"/><stop offset="1" stop-color="#03134f"/>
+    </linearGradient>
+    <linearGradient id="front" x1="680" y1="570" x2="760" y2="910" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#073db2"/><stop offset=".65" stop-color="#02164d"/><stop offset="1" stop-color="#021039"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="600" x2="1700" y2="620" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28bdff"/><stop offset=".22" stop-color="#0064ff"/><stop offset=".5" stop-color="#0051ff"/><stop offset=".7" stop-color="#08abff"/><stop offset="1" stop-color="#0060fc" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bottom" x1="1300" y1="700" x2="1250" y2="940" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#073ab5"/><stop offset="1" stop-color="#03134f"/>
+    </linearGradient>
+    <filter id="glow" x="-10%" y="-100%" width="120%" height="300%"><feGaussianBlur stdDeviation="6"/></filter>
+  </defs>
+  <path fill="url(#base)" d="M0 0h1672v850H0z"/>
+  <path fill="url(#light)" d="M0 0h1672v850H0z"/>
+  <path d="M-80 170C80 510 460 565 810 680c360 119 588-7 942-190v440H-80Z" fill="url(#rear)"/>
+  <path d="M-80 170C80 510 460 565 810 680c360 119 588-7 942-190" stroke="url(#edge)" stroke-width="7" opacity=".45" filter="url(#glow)"/>
+  <path d="M-80 170C80 510 460 565 810 680c360 119 588-7 942-190" stroke="url(#edge)" stroke-width="1.4"/>
+  <path d="M-80 570C270 592 490 830 825 807c325-22 520-239 927-282v405H-80Z" fill="url(#front)"/>
+  <path d="M-80 570C270 592 490 830 825 807c325-22 520-239 927-282" stroke="url(#edge)" stroke-width="8" opacity=".65" filter="url(#glow)"/>
+  <path d="M-80 570C270 592 490 830 825 807c325-22 520-239 927-282" stroke="url(#edge)" stroke-width="1.5"/>
+  <path d="M360 930c410-38 824-289 1392-215v215Z" fill="url(#bottom)"/>
+  <path d="M360 930c410-38 824-289 1392-215" stroke="#0751e1" stroke-opacity=".5"/>
+</svg>

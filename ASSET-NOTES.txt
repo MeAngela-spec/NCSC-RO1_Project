@@ -1,10 +1,24 @@
-LOGIN BACKGROUND (24 NOVEMBER 2026)
+APPROVED LOGIN (25 NOVEMBER 2026)
+Asset path  assets/login-waves.svg
+Hand-authored vector waves reproduce the blue-only background direction of
+the user's approved mockup, Official document routing login portal(2).png.
+The title and functional form are real HTML inside a shared CSS glass panel.
+Georgia is a local system serif; no online fonts or remote assets are used.
+
+OFFICIAL LOGIN SEAL
+Asset path  assets/ncsc-official-logo.jpg
+Source  NCSC LOGO.jpg supplied by the user
+Copied byte-for-byte. Both the mini header seal and the larger watermark use
+this same original file, not an AI-generated reproduction. CSS clips only
+the surrounding white margin and applies opacity to the watermark. The logo
+artwork, colors, lettering and proportions are not redrawn or stretched.
+
+LEGACY LOGIN PHOTOGRAPH (24 NOVEMBER 2026)
 Asset path  assets/login-background.jpg
 Source  PhotoGrid_Site_1795504506051.jpg supplied by the user
 The supplied photograph is copied byte-for-byte and bundled for offline use.
-The login page displays its full 2048 x 675 aspect ratio without cover sizing,
-cropping or stretching. CSS blends the empty sky at the top into the page.
-The previous login background below is retained as an unused legacy asset.
+Previously displayed at its full 2048 x 675 aspect ratio. Retained as an
+unused legacy asset together with the older background below.
 
 LEGACY LOGIN BACKGROUND
 Asset path  assets/login-seniors.png

@@ -402,9 +402,9 @@ from your approved package source and run python app.py.
 Bundled offline wheels support Windows 64-bit with Python 3.12.
 
 VISUAL REFERENCES
-The supplied login example informed the split layout. NCSC branding informed
-the navy, red and white palette. The supplied BG2.jpg was cleaned to remove
-press-release text and graphics. The five senior citizens remain visible.
-The cleaned image is bundled locally for offline use.
+The approved login uses a blue-wave background and transparent shared glass
+panel. Its header and watermark both display the original supplied NCSC LOGO.jpg.
+The three-line system title uses a local serif font. All login assets are
+bundled for offline use; no internet connection or online font is needed.
 Official website https://www.ncsc.gov.ph/
 The supplied NCSC seal and original routing-slip template are included.
