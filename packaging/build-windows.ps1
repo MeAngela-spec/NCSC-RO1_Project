@@ -3,6 +3,14 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 New-Item -ItemType Directory -Force build, build/downloads, installer-output | Out-Null
+function Invoke-VerifiedProcess([string]$Executable, [string]$Arguments, [int]$TimeoutSeconds = 240) {
+    $process = Start-Process $Executable -ArgumentList $Arguments -PassThru
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        throw "$Executable exceeded its verification timeout ($TimeoutSeconds seconds)."
+    }
+    return $process.ExitCode
+}
 
 $loVersion = '26.8.3'
 $loUrl = "https://download.documentfoundation.org/libreoffice/stable/$loVersion/win/x86_64/LibreOffice_${loVersion}_Win_x86-64.msi"
@@ -53,13 +61,13 @@ if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed.' }
 
 # Exercise the actual frozen app, including its own converter, before packaging.
 $report = Join-Path $root 'build/frozen-self-test.json'
-$process = Start-Process "$root/dist/NCSCRO1/NCSCRO1.exe" -ArgumentList "--self-test --self-test-report `"$report`"" -Wait -PassThru
-if ($process.ExitCode -ne 0 -or -not (Test-Path $report)) { throw 'Frozen application self-test failed; inspect build/frozen-self-test.json.' }
+$exitCode = Invoke-VerifiedProcess "$root/dist/NCSCRO1/NCSCRO1.exe" "--self-test --self-test-report `"$report`""
+if ($exitCode -ne 0 -or -not (Test-Path $report)) { throw 'Frozen application self-test failed; inspect build/frozen-self-test.json.' }
 $result = Get-Content $report -Raw | ConvertFrom-Json
 if (-not $result.ok -or -not $result.frozen -or $result.print_converter -ne 'bundled') { throw 'The frozen app or private converter failed verification.' }
 $uiReport = Join-Path $root 'build/ui-self-test.json'
-$process = Start-Process "$root/dist/NCSCRO1/NCSCRO1.exe" -ArgumentList "--ui-smoke-test --self-test-report `"$uiReport`"" -Wait -PassThru
-if ($process.ExitCode -ne 0 -or -not (Test-Path $uiReport)) { throw 'Packaged desktop interface verification failed.' }
+$exitCode = Invoke-VerifiedProcess "$root/dist/NCSCRO1/NCSCRO1.exe" "--ui-smoke-test --self-test-report `"$uiReport`"" 60
+if ($exitCode -ne 0 -or -not (Test-Path $uiReport)) { throw 'Packaged desktop interface verification failed.' }
 
 $iscc = Get-ChildItem "${env:ProgramFiles(x86)}/Inno Setup*/ISCC.exe", "$env:ProgramFiles/Inno Setup*/ISCC.exe" -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -79,11 +87,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
 $setup = Get-ChildItem installer-output/NCSC-RO1-Setup-*.exe | Select-Object -First 1
 $temporaryRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
 $testInstall = Join-Path $temporaryRoot 'ncsc-installer-verification'
-$install = Start-Process $setup.FullName -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$testInstall`" /TASKS=`"`"" -Wait -PassThru
-if ($install.ExitCode -ne 0) { throw 'Silent installation verification failed.' }
+$exitCode = Invoke-VerifiedProcess $setup.FullName "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$testInstall`" /TASKS=`"`"" 300
+if ($exitCode -ne 0) { throw 'Silent installation verification failed.' }
 $report = Join-Path $root 'build/installed-self-test.json'
-$process = Start-Process "$testInstall/NCSCRO1.exe" -ArgumentList "--self-test --self-test-report `"$report`"" -Wait -PassThru
-if ($process.ExitCode -ne 0 -or -not (Test-Path $report)) { throw 'Installed application verification failed.' }
+$exitCode = Invoke-VerifiedProcess "$testInstall/NCSCRO1.exe" "--self-test --self-test-report `"$report`""
+if ($exitCode -ne 0 -or -not (Test-Path $report)) { throw 'Installed application verification failed.' }
 $result = Get-Content $report -Raw | ConvertFrom-Json
 if (-not $result.ok -or -not $result.frozen) { throw 'Installed app did not pass its self-test.' }
 $hash = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()

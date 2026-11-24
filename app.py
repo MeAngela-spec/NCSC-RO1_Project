@@ -62,8 +62,16 @@ ALIASES = {
 def now():
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
+class WorkspaceConnection(sqlite3.Connection):
+    """Commit/rollback and release the SQLite file handle on context exit."""
+    def __exit__(self, *error):
+        try:
+            return super().__exit__(*error)
+        finally:
+            self.close()
+
 def connect():
-    c = sqlite3.connect(DB, timeout=30)
+    c = sqlite3.connect(DB, timeout=30, factory=WorkspaceConnection)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA foreign_keys=ON")
     return c

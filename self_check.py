@@ -1,7 +1,6 @@
 """Packaged app verification with fictional records in a temporary workspace."""
 import http.cookiejar
 from contextlib import closing
-import gc
 from http.server import ThreadingHTTPServer
 import io
 import json
@@ -65,6 +64,14 @@ def run():
             service = HostService(home / "data", port=0, address="127.0.0.1")
             service.start()
             app = service.backend
+            with app.connect() as connection:
+                assert connection.execute("SELECT 1").fetchone()[0] == 1
+            try:
+                connection.execute("SELECT 1")
+            except sqlite3.ProgrammingError:
+                passed("Database connections release file handles after each transaction")
+            else:
+                raise AssertionError("A finished database context kept its connection open")
             assert not read_health(service.local_url)["configured"]
             for filename in ["index.html", "printing.html", "assets/app.js", "assets/style.css", "assets/logo.jpg",
                              "assets/matrix-letterhead.png", "assets/matrix-print.js", "templates/routing-slip.docx"]:
@@ -168,7 +175,6 @@ def run():
             passed("Consistent live backup and safe existing-workspace import")
             service.stop()
             service = None
-            gc.collect()
             report["ok"] = True
     except Exception as error:
         report["ok"] = False
