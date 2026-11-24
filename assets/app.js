@@ -131,11 +131,8 @@ function login(setup = false) {
       passwordInput('password', 'Password') +
       '<div class="login-links"><button type="button" class="btn link" data-action="forgot">Forgot password?</button></div>' +
       '<div class="error" id="loginError" role="alert" hidden></div><button class="btn primary login-submit">Log in</button></form>';
-  $('app').innerHTML = '<main class="login"><section class="login-scene"><div class="login-brand">' +
-    '<img src="/assets/logo.jpg" alt="NCSC seal"><div><span>Republic of the Philippines</span><strong>NATIONAL COMMISSION<br>OF SENIOR CITIZENS</strong></div></div>' +
-    '<div class="login-caption"><div class="eyebrow">Regional Office I</div><h1>Document Routing<br>&amp; Tracking System</h1>' +
-    '<p>Keeping office correspondence organized.<br>Supporting our service to senior citizens.</p>' +
-    '</div></section>' +
+  $('app').innerHTML = '<main class="login"><section class="login-scene" aria-label="NCSC senior citizens"><div class="login-brand">' +
+    '<img src="/assets/logo.jpg" alt="NCSC seal"><div><span>Republic of the Philippines</span><strong>NATIONAL COMMISSION<br>OF SENIOR CITIZENS</strong></div></div></section>' +
     '<section class="login-panel"><article class="login-card"><div class="region">NCSC · REGIONAL OFFICE I</div>' +
     '<h2>' + (setup ? 'Set up your workspace' : 'Sign in to your workspace') + '</h2><p class="intro">' +
     (setup ? 'Create your personal administrator account under ORD. You can add staff accounts after setup.' : 'Log in with your staff account to access your department workspace.') +
