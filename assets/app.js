@@ -6,7 +6,8 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c =>
 const state = {
   user: null, csrf: '', collections: [], rows: [], deleted: [], record: null, editing: false,
   page: new URLSearchParams(location.search).get('page') === 'documents' ? 'documents' : 'dashboard', settingsOpen: false, collection: '', query: '', status: '', draft: null, dirty: false,
-  selected: new Set(), selecting: false
+  selected: new Set(), selecting: false, deletedSelected: new Set(), deletedSelecting: false,
+  importSelected: new Set(), importSelecting: false, departmentsOpen: false, department: '', departments: [], directory: []
 };
 const departments = {ORD:'Office of the Regional Director', AFS:'Administrative and Finance Section', OPS:'Operations'};
 const mappingLabels = {
@@ -56,7 +57,12 @@ const opts = (values, selected = '') => values.map(item => {
 }).join('');
 const editor = () => ['admin', 'records'].includes(state.user?.role);
 const mapped = (r, key) => String(r.cells[r.mappings[key]] || '').trim();
-const statusOf = r => mapped(r, 'status') || (mapped(r, 'assigned') ? 'Routed' : 'For Routing');
+const statuses = ['For routing', 'Received', 'Pending', 'Ongoing', 'Completed'];
+const canonicalStatus = value => ({forrouting:'For routing',routed:'For routing',received:'Received',pending:'Pending',ongoing:'Ongoing',completed:'Completed'}[normalize(value)] || value || 'For routing');
+const statusOf = r => canonicalStatus(mapped(r, 'status'));
+const departmentName = code => state.departments.find(d=>d.code===code)?.name || departments[code] || code;
+const documentSelection = () => state.page==='deleted' ? state.deletedSelected : state.selected;
+const isSelecting = () => state.page==='deleted' ? state.deletedSelecting : state.selecting;
 const subjectOf = r => mapped(r, 'subject') || Object.values(r.cells).find(Boolean) || 'Untitled document';
 const refOf = r => mapped(r, 'reference') || r.id.slice(0, 8).toUpperCase();
 const normalize = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -101,8 +107,16 @@ function showError(error) {
   } else toast(error.message);
 }
 async function loadData() {
-  [state.collections, state.rows] = await Promise.all([api('/api/collections'), api('/api/register')]);
-  if (editor()) state.deleted = await api('/api/register?deleted=1');
+  const [collections,rows,departmentList,directory,deleted] = await Promise.all([
+    api('/api/collections'), api('/api/register'), api('/api/departments'), api('/api/directory'),
+    editor() ? api('/api/register?deleted=1') : Promise.resolve([])]);
+  Object.assign(state,{collections,rows,departments:departmentList,directory,deleted});
+  for (const [selection, rows] of [[state.selected,state.rows],[state.deletedSelected,state.deleted]]) {
+    const available=new Set(rows.map(r=>r.id));
+    for (const id of selection) if (!available.has(id)) selection.delete(id);
+  }
+  const sources=new Set(state.collections.filter(c=>c.count>0).map(c=>c.id));
+  for (const id of state.importSelected) if (!sources.has(id)) state.importSelected.delete(id);
   if (state.collection && !state.collections.some(c => c.id === state.collection)) state.collection = '';
 }
 async function start() {
@@ -168,7 +182,7 @@ function recoveryCodes(codes) {
     '<p class="notice">Your recovery code lets you reset your password offline. Each successful reset replaces the code. Keep a copy in a secure place.</p>' +
     '<div class="recovery-grid">' + Object.entries(codes).map(([name, code]) =>
       '<div><label>' + esc(name) + '</label><div class="recovery-code">' + esc(code) + '</div></div>').join('') + '</div>',
-    button('Download codes', 'downloadcodes', '', 'download') + button('Codes saved', 'close', 'primary'));
+    button('Download codes', 'downloadcodes', '', 'download') + button('Codes saved', 'close', 'primary'),'compact');
   $('dialog').dataset.codes = JSON.stringify(codes);
 }
 function forgotPassword() {
@@ -176,7 +190,7 @@ function forgotPassword() {
     '<form id="recoverForm" class="stack"><label>Username<input name="username" required placeholder="Your username" autocomplete="username"></label>' +
     '<label>Recovery code<input name="code" required autocomplete="off" spellcheck="false" placeholder="XXXXXX-XXXXXX-XXXXXX-XXXXXX"></label>' +
     passwordInput('password', 'New password', 'new-password') + '</form>',
-    button('Cancel', 'close') + '<button form="recoverForm" class="btn primary">Reset password</button>');
+    button('Cancel', 'close') + '<button form="recoverForm" class="btn primary">Reset password</button>','compact');
   $('recoverForm').onsubmit = async e => {
     e.preventDefault();
     e.submitter.disabled = true;
@@ -191,8 +205,9 @@ function forgotPassword() {
 
 /* Workspace navigation and document register */
 function navItem(page, text, symbol, count) {
-  return '<button type="button" class="nav-item ' + (state.page === page ? 'active' : '') +
-    '" data-page="' + page + '"' + (state.page === page ? ' aria-current="page"' : '') + '>' +
+  const active = state.page===page && !(page==='documents' && state.department);
+  return '<button type="button" class="nav-item ' + (active ? 'active' : '') +
+    '" data-page="' + page + '"' + (active ? ' aria-current="page"' : '') + '>' +
     icon(symbol) + text + (count !== undefined ? '<span class="count">' + count + '</span>' : '') + '</button>';
 }
 function render() {
@@ -202,6 +217,9 @@ function render() {
     '<div class="header-right"><span>Document Routing &amp; Tracking · Region I</span><span class="department-chip">' + esc(u.department) + ' workspace</span></div></header>' +
     '<div class="workspace"><aside class="sidebar"><div class="sidebar-navigation"><p class="nav-label">WORKSPACE</p><nav aria-label="Main navigation">' +
     navItem('dashboard', 'Dashboard', 'grid') + navItem('documents', editor() ? 'Document register' : 'Assigned documents', 'file', state.rows.length) +
+    '<div class="settings-menu"><button type="button" class="nav-item settings-toggle '+(state.department?'active':'')+'" data-action="departments" aria-expanded="'+state.departmentsOpen+'" aria-controls="departmentsMenu">'+icon('folder')+'Departments<span class="nav-chevron">'+icon('chevron')+'</span></button>'+
+    '<div id="departmentsMenu" class="settings-items" '+(!state.departmentsOpen?'hidden':'')+'>'+state.departments.map(d=>
+      '<button type="button" class="nav-item '+(state.page==='documents'&&state.department===d.code?'active':'')+'" data-department="'+esc(d.code)+'" title="'+esc(d.name)+'"'+(state.page==='documents'&&state.department===d.code?' aria-current="page"':'')+'>'+icon('file')+esc(d.code)+'<span class="count">'+state.rows.filter(r=>r.departments?.includes(d.code)).length+'</span></button>').join('')+'</div></div>'+
     (editor() ? navItem('imports', 'Imported files', 'upload') : '') +
     '<div class="settings-menu"><button type="button" class="nav-item settings-toggle '+(['accounts','deleted'].includes(state.page)?'active':'')+'" data-action="settings" aria-expanded="'+state.settingsOpen+'" aria-controls="settingsMenu">'+icon('settings')+'Settings<span class="nav-chevron">'+icon('chevron')+'</span></button>'+
     '<div id="settingsMenu" class="settings-items" '+(!state.settingsOpen?'hidden':'')+'>'+
@@ -223,11 +241,12 @@ function pageHeading(title, subtitle, actionsMarkup = '') {
     '</h1><p>' + esc(subtitle) + '</p></div><div class="tools">' + actionsMarkup + '</div></div>';
 }
 function statsMarkup() {
+  const rows = state.page==='documents' && state.department ? state.rows.filter(r=>r.departments?.includes(state.department)) : state.rows;
   const stats = [
-    ['All documents', state.rows.length, 'file', '', ''],
-    ['For routing', state.rows.filter(r => statusOf(r) === 'For Routing').length, 'clock', 'orange', 'For Routing'],
-    ['In progress', state.rows.filter(r => ['Routed', 'Received', 'Ongoing'].includes(statusOf(r))).length, 'refresh', '', 'active'],
-    ['Completed', state.rows.filter(r => statusOf(r) === 'Completed').length, 'check', 'green', 'Completed']
+    ['All documents', rows.length, 'file', '', ''],
+    ['For routing', rows.filter(r => statusOf(r) === 'For routing').length, 'clock', 'orange', 'For routing'],
+    ['In progress', rows.filter(r => ['Received', 'Pending', 'Ongoing'].includes(statusOf(r))).length, 'refresh', '', 'active'],
+    ['Completed', rows.filter(r => statusOf(r) === 'Completed').length, 'check', 'green', 'Completed']
   ];
   return '<section class="stats" aria-label="Document summary">' + stats.map(([label, count, symbol, color, filter]) =>
     '<button class="stat ' + (filter && state.status === filter ? 'active' : '') + '" data-status="' + filter + '">' +
@@ -255,8 +274,9 @@ function filteredRows() {
   const rows = state.page === 'deleted' ? state.deleted : state.rows;
   const query = state.query.toLowerCase();
   return rows.filter(r => (!state.collection || r.collection_id === state.collection) &&
+    (!state.department || r.departments?.includes(state.department)) &&
     (!query || [...Object.values(r.cells),r.source?.filename,r.source?.sender].some(v => String(v || '').toLowerCase().includes(query))) &&
-    (!state.status || (state.status === 'active' ? ['Routed', 'Received', 'Ongoing'].includes(statusOf(r)) : statusOf(r) === state.status)));
+    (!state.status || (state.status === 'active' ? ['Received', 'Pending', 'Ongoing'].includes(statusOf(r)) : state.status==='__other__' ? !statuses.includes(statusOf(r)) : statusOf(r) === state.status)));
 }
 function isRowNumber(column) { return ['no','rowno','rownumber','sourcerowno','sourcerownumber','serialno','serialnumber','sno'].includes(normalize(column)); }
 function rowNumber(record,index = state.rows.findIndex(r=>r.id===record.id)) {
@@ -271,21 +291,23 @@ function shownColumns() {
 }
 function renderDocuments() {
   const deleted = state.page === 'deleted';
-  const title = deleted ? 'Deleted documents' : editor() ? 'Document register' : 'Assigned documents';
+  const relevantIds=new Set((deleted?state.deleted:state.rows).filter(r=>!state.department||r.departments?.includes(state.department)).map(r=>r.collection_id));
+  const worksheets=state.collections.filter(c=>relevantIds.has(c.id));
+  const title = deleted ? 'Deleted documents' : state.department ? state.department+' documents' : editor() ? 'Document register' : 'Assigned documents';
   const actionsMarkup = deleted ? '' : editor() ?
     button('New document', 'new', '', 'plus') + button('Import file', 'import', 'primary', 'upload') :
     button('Refresh', 'refresh', '', 'refresh');
   $('content').innerHTML = pageHeading(title, deleted ? 'Restore documents, or permanently delete them with administrator access.' :
-    'Review, route, and track correspondence across the regional office.', actionsMarkup) +
+    state.department ? departmentName(state.department) : 'Review, route, and track correspondence across the regional office.', actionsMarkup) +
     (!deleted ? statsMarkup() : '') + '<section class="card">' +
     '<div class="card-head"><div><h2>' + (deleted ? 'Recently deleted' : 'Tracking matrix') +
     '</h2><small>Standard tracking fields stay in a fixed order. Additional imported fields follow.</small></div><div class="tools">' +
-    (!deleted && state.rows.length ? button(state.selecting ? 'Done selecting' : 'Select documents', 'selectmode', state.selecting ? 'primary' : '', 'file') + button('Print matrix', 'printmatrix', '', 'print') +
-      button('Export file', 'export', '', 'download') : '') + '</div></div>' +
+    ((deleted ? state.deleted : state.rows).length ? button(isSelecting() ? 'Done selecting' : 'Select documents', 'selectmode', isSelecting() ? 'primary' : '', 'file') +
+      (!deleted ? button('Print matrix', 'printmatrix', '', 'print') + button('Export file', 'export', '', 'download') : '') : '') + '</div></div>' +
     ((deleted ? state.deleted : state.rows).length ? '<div class="filters"><label class="search">' + icon('search') +
       '<input id="search" type="search" aria-label="Search all columns" placeholder="Search reference, subject, or any detail…" value="' + esc(state.query) + '"></label>' +
-      '<select id="collectionFilter" aria-label="Filter worksheet">' + opts([['', 'All worksheets'], ...state.collections.map(c => [c.id, c.name])], state.collection) + '</select>' +
-      '<select id="statusFilter" aria-label="Filter status">' + opts([['', 'All statuses'], ...['For Routing', 'Routed', 'Received', 'Ongoing', 'Completed']], state.status) +
+      '<select id="collectionFilter" aria-label="Filter worksheet">' + opts([['', 'All worksheets'], ...worksheets.map(c => [c.id, c.name])], state.collection) + '</select>' +
+      '<select id="statusFilter" aria-label="Filter status">' + opts([['', 'All statuses'], ...statuses, ['__other__','Other statuses']], state.status) +
       '</select>' + button('Refresh', 'refresh', '', 'refresh') + button('Clear', 'clear', 'link') + '</div>' +
       '<div id="selectionBar"></div><div class="table-wrap"><table id="matrix"><thead id="matrixHead"></thead><tbody id="rows"></tbody></table></div>' +
       '<div class="table-foot"><span id="rowCount"></span><span>Scroll horizontally to view all columns</span></div>' : emptyMarkup(deleted)) + '</section>';
@@ -301,7 +323,8 @@ function selectedRows() {
   return [...state.selected].map(id=>available.get(id)).filter(Boolean);
 }
 function toggleSelected(id) {
-  if (state.selected.has(id)) state.selected.delete(id); else state.selected.add(id);
+  const selection=documentSelection();
+  if (selection.has(id)) selection.delete(id); else selection.add(id);
   drawRows();
   document.querySelector('[data-select-row="'+id+'"]')?.focus();
 }
@@ -310,27 +333,27 @@ function drawRows() {
   const fields = columns.filter(c=>c!=='No.');
   const list = filteredRows();
   const deleted = state.page === 'deleted';
-  const picking = state.selecting && !deleted;
-  const available = new Set(state.rows.map(r=>r.id));
-  for (const id of state.selected) if (!available.has(id)) state.selected.delete(id);
+  const picking = isSelecting(), selection=documentSelection();
+  const available = new Set((deleted?state.deleted:state.rows).map(r=>r.id));
+  for (const id of selection) if (!available.has(id)) selection.delete(id);
   $('matrix').classList.toggle('selection-mode',picking);
   $('matrix').classList.toggle('deleted-matrix',deleted);
   $('matrix').setAttribute('role',picking?'grid':'table');
   if (picking) $('matrix').setAttribute('aria-multiselectable','true'); else $('matrix').removeAttribute('aria-multiselectable');
   $('matrixHead').innerHTML = '<tr><th class="row-number-cell" scope="col">No.</th>'+fields.map(c=>'<th scope="col">'+esc(c)+'</th>').join('')+'<th class="action-cell" scope="col">'+(picking?'Selection':'Action')+'</th></tr>';
   $('rows').innerHTML = list.map((r,index) =>
-    '<tr class="'+(state.selected.has(r.id)?'selected-row':'')+'" '+(picking?'data-select-row="'+r.id+'" tabindex="0" aria-selected="'+state.selected.has(r.id)+'"':'')+'>'+
-    '<td class="row-number-cell"><span class="row-number '+(state.selected.has(r.id)?'picked':'')+'">'+esc(rowNumber(r,index))+'</span></td>'+
+    '<tr class="'+(selection.has(r.id)?'selected-row':'')+'" '+(picking?'data-select-row="'+r.id+'" tabindex="0" aria-selected="'+selection.has(r.id)+'"':'')+'>'+
+    '<td class="row-number-cell"><span class="row-number '+(selection.has(r.id)?'picked':'')+'">'+esc(rowNumber(r,index))+'</span></td>'+
     fields.map(column => '<td'+(column===r.mappings.subject?' class="cell-subject"':column===r.mappings.reference?' class="ref"':'')+'>'+
-      (column==='MOV 1'||column==='MOV 2'?movMarkup(r,column):column===r.mappings.status?pill(r.cells[column]||statusOf(r)):
+      (column==='MOV 1'||column==='MOV 2'?movMarkup(r,column):column===r.mappings.status?pill(statusOf(r)):column===r.mappings.assigned?esc(r.cells[column]||'')+(r.assigned_staff?'<small class="assigned-person">'+esc(r.assigned_staff.name)+'</small>':''):
        column===r.mappings.subject&&!deleted&&!picking?'<button class="subject-link" data-record="'+r.id+'">'+esc(r.cells[column]||'')+'</button>':esc(r.cells[column]||''))+'</td>').join('')+
-    '<td class="action-cell">'+(deleted?'<div class="row-actions"><button class="btn edit-button" data-restore="'+r.id+'">Restore</button>'+(state.user.role==='admin'?'<button class="btn danger" data-purge-record="'+r.id+'" title="Delete permanently">Delete</button>':'')+'</div>':picking?'<span class="row-prompt">'+(state.selected.has(r.id)?'Selected':'Click row to select')+'</span>':
+    '<td class="action-cell">'+(picking?'<span class="row-prompt">'+(selection.has(r.id)?'Selected':'Click row to select')+'</span>':deleted?'<div class="row-actions"><button class="btn edit-button" data-restore="'+r.id+'">Restore</button>'+(state.user.role==='admin'?'<button class="btn danger" data-purge-record="'+r.id+'" title="Delete permanently">Delete</button>':'')+'</div>':
       '<div class="row-actions"><button class="btn view-button" data-record="'+r.id+'" aria-label="View '+esc(refOf(r))+'">View</button>'+(state.user.role!=='viewer'?'<button class="btn edit-button" data-edit-record="'+r.id+'" aria-label="Edit '+esc(refOf(r))+'">Edit</button>':'')+'</div>')+'</td></tr>').join('') ||
     '<tr><td colspan="'+(fields.length+2)+'"><div class="empty"><h2>No matching documents</h2><p>Try another search or clear the filters.</p></div></td></tr>';
   $('rowCount').textContent = list.length+' document'+(list.length===1?'':'s')+' · '+columns.length+' columns';
-  if (deleted) { $('selectionBar').innerHTML=''; return; }
+  if (deleted) { drawDeletedSelection(); return; }
   const selected = selectedRows();
-  $('selectionBar').innerHTML = (picking?'<div class="selection-instructions"><span>Click a row to add or remove a document. Press Enter or Space when a row is focused.</span>'+button('Add all shown','selectshown','link')+'</div>':'')+
+  $('selectionBar').innerHTML = (picking?'<div class="selection-instructions"><span>Click a row to select. Use Enter or Space with the keyboard. Select all applies to the current filters.</span>'+button('Select all shown','selectshown','link')+'</div>':'')+
     (selected.length?'<div class="print-tray"><div class="tray-summary"><strong>'+selected.length+' document'+(selected.length===1?'':'s')+' selected</strong><span>Each selected document prints as one row on a shared NCSC sheet.</span></div>'+
       '<div class="tray-documents">'+selected.slice(0,3).map(r=>'<span class="document-chip" title="'+esc(subjectOf(r))+'"><span>'+esc(refOf(r))+'</span><button type="button" data-remove-selected="'+r.id+'" aria-label="Remove '+esc(subjectOf(r))+' from selection">'+icon('close')+'</button></span>').join('')+(selected.length>3?'<small>+'+(selected.length-3)+' more</small>':'')+'</div>'+
       '<div class="tools">'+button('Print selected rows','printselected','primary','print')+button('Export selected','exportselected','','download')+(editor()?button('Delete selected','deleteselected','danger','trash'):'')+button('Clear selection','clearselection','link')+'</div></div>':
@@ -338,16 +361,64 @@ function drawRows() {
 }
 document.addEventListener('keydown', e => {
   const row=e.target.closest('[data-select-row]');
-  if (state.selecting && row && e.target===row && ['Enter',' '].includes(e.key)) {e.preventDefault();toggleSelected(row.dataset.selectRow);}
+  if (isSelecting() && row && e.target===row && ['Enter',' '].includes(e.key)) {e.preventDefault();toggleSelected(row.dataset.selectRow);}
 });
 
 function renderImports() {
+  const collections=state.collections.filter(c=>c.count>0);
+  const available=new Set(collections.map(c=>c.id));
+  for (const id of state.importSelected) if (!available.has(id)) state.importSelected.delete(id);
   $('content').innerHTML = pageHeading('Imported files', 'Manage the worksheets and tables added to the register.',
     button('Import file', 'import', 'primary', 'upload')) + '<section class="card">' +
-    (state.collections.length ? state.collections.map(c => '<div class="source-card"><div><strong>' + esc(c.name) +
+    (collections.length ? '<div class="card-head"><div><h2>Source worksheets</h2><small>Delete a worksheet to move its active documents to Deleted documents. Source files and history are retained.</small></div>'+button(state.importSelecting?'Done selecting':'Select files','selectimports',state.importSelecting?'primary':'','file')+'</div>'+
+      (state.importSelecting?'<div class="selection-instructions"><span>Click a source card to select it.</span>'+button('Select all','selectallimports','link')+'</div>':'')+
+      (state.importSelected.size?'<div class="print-tray"><div class="tray-summary"><strong>'+state.importSelected.size+' source(s) selected</strong><span>'+collections.filter(c=>state.importSelected.has(c.id)).reduce((sum,c)=>sum+c.count,0)+' active documents</span></div><div class="tools">'+button('Delete selected','deleteimports','danger','trash')+button('Clear selection','clearimports','link')+'</div></div>':'')+
+      '<div class="source-list"'+(state.importSelecting?' role="group" aria-label="Select imported sources"':'')+'>'+collections.map(c => '<div class="source-card '+(state.importSelected.has(c.id)?'selected-source':'')+'"'+(state.importSelecting?' data-select-import="'+c.id+'" tabindex="0" role="button" aria-pressed="'+state.importSelected.has(c.id)+'"':'')+'><div><strong>' + esc(c.name) +
       '</strong><p>' + c.count + ' records · ' + c.columns.length + ' columns · Imported ' + esc(formatDate(c.created)) +
-      '</p></div><div class="tools"><button class="btn" data-source="' + c.id + '">View records</button><button class="btn" data-map="' +
-      c.id + '">Worksheet settings</button></div></div>').join('') : emptyMarkup()) + '</section>';
+      '</p></div><div class="tools">'+(state.importSelecting?'<span class="row-prompt">'+(state.importSelected.has(c.id)?'Selected':'Click to select')+'</span>':'<button class="btn view-button" data-source="' + c.id + '">View records</button><button class="btn" data-map="' +
+      c.id + '">Worksheet settings</button><button class="btn danger" data-delete-import="'+c.id+'">Delete</button>')+'</div></div>').join('')+'</div>' : '<div class="empty"><h2>No active imported sources</h2><p>Import a file to begin. Deleted documents and their source files remain available in Settings.</p>'+button('Import file','import','primary','upload')+'</div>') + '</section>';
+}
+function toggleImport(id) {
+  if (state.importSelected.has(id)) state.importSelected.delete(id); else state.importSelected.add(id);
+  renderImports();document.querySelector('[data-select-import="'+id+'"]')?.focus();
+}
+document.addEventListener('keydown',e=>{
+  const card=e.target.closest('[data-select-import]');
+  if (card && e.target===card && ['Enter',' '].includes(e.key)) {e.preventDefault();toggleImport(card.dataset.selectImport);}
+});
+function deleteImportedSources(ids=[...state.importSelected]) {
+  const sources=state.collections.filter(c=>ids.includes(c.id)&&c.count>0);
+  if (!sources.length) return toast('Select source worksheets to delete.');
+  const count=sources.reduce((sum,c)=>sum+c.count,0);
+  modal('Delete selected sources?',sources.length+' source(s) · '+count+' active document(s)',
+    '<ul class="confirmation-list">'+sources.slice(0,5).map(c=>'<li><strong>'+esc(c.name)+'</strong><span>'+c.count+' active document(s)</span></li>').join('')+'</ul>'+
+    '<p class="notice">These documents move to Deleted documents together. Their source files, attachments and history are kept. Restore documents there if needed.</p>',
+    button('Cancel','close')+button('Move '+count+' to Deleted','confirmdeleteimports','danger','trash'),'compact');
+  $('dialog').dataset.batch=JSON.stringify(sources.map(c=>({id:c.id,revision:c.revision})));
+}
+
+function drawDeletedSelection() {
+  const selected=state.deleted.filter(r=>state.deletedSelected.has(r.id));
+  $('selectionBar').innerHTML=(state.deletedSelecting?'<div class="selection-instructions"><span>Click rows to select. Select all applies to the current filters.</span>'+button('Select all shown','selectshown','link')+'</div>':'')+
+    (selected.length?'<div class="print-tray"><div class="tray-summary"><strong>'+selected.length+' document(s) selected</strong><span>Restore with files and history, or permanently delete with administrator access.</span></div><div class="tools">'+button('Restore selected','restoreselected','primary','refresh')+(state.user.role==='admin'?button('Delete permanently','purgeselected','danger','trash'):'')+button('Clear selection','clearselection','link')+'</div></div>':'<p class="selection-hint">Use Select documents to restore or permanently delete multiple rows.</p>');
+}
+function deletedBatchDialog(purge=false) {
+  const rows=state.deleted.filter(r=>state.deletedSelected.has(r.id));
+  if (!rows.length) return toast('Select deleted documents first.');
+  const confirmation='DELETE '+rows.length;
+  modal(purge?'Delete selected documents permanently?':'Restore selected documents?',rows.length+' document(s) selected',
+    '<ul class="confirmation-list">'+rows.slice(0,5).map(r=>'<li><strong>'+esc(refOf(r))+'</strong><span>'+esc(subjectOf(r))+'</span></li>').join('')+(rows.length>5?'<li>And '+(rows.length-5)+' more</li>':'')+'</ul>'+
+    (purge?'<p class="error">This removes the selected documents, their owned attachments and history permanently. Shared source files are kept while another document uses them.</p><form id="deletedBatchForm" class="stack"><label>Type '+confirmation+' to confirm<input name="confirmation" required autocomplete="off" spellcheck="false" placeholder="'+confirmation+'"></label></form>':'<p class="notice">These documents return to the register and their department folders with files, assignments and history.</p><form id="deletedBatchForm"></form>'),
+    button('Cancel','close')+'<button form="deletedBatchForm" class="btn '+(purge?'danger':'primary')+'">'+(purge?'Delete permanently':'Restore '+rows.length+' documents')+'</button>','compact');
+  const items=rows.map(r=>({id:r.id,version:r.version}));
+  $('deletedBatchForm').onsubmit=async e=>{
+    e.preventDefault();e.submitter.disabled=true;
+    try {
+      const result=await api(purge?'/api/purge-batch':'/api/restore-batch',{items,confirmation:e.target.elements.confirmation?.value||''});
+      state.deletedSelected.clear();state.deletedSelecting=false;$('dialog').close();await loadData();render();
+      toast(result.count+' document(s) '+(purge?'permanently deleted.':'restored.')+(result.cleanup_pending?' Some file cleanup is pending; the host will retry.':''));
+    } catch(error) {showError(error);e.submitter.disabled=false;}
+  };
 }
 
 /* File import uses a separate preview and confirmation stage. */
@@ -398,6 +469,7 @@ function previewImport() {
   modal('Review imported content', preview.filename,
     '<div class="steps"><span class="done">File selected</span><span class="current">Review content</span><span>Import</span></div>' +
     preview.warnings.map(w => '<p class="notice">' + esc(w) + '</p>').join('') +
+    (preview.datasets.length>1?'<div class="tools">'+button('Select all worksheets','allworksheets','link')+button('Clear worksheet selection','noworksheets','link')+'</div>':'')+
     '<form id="importReview" class="stack">' + preview.datasets.map((d, index) =>
       '<section class="section preview"><label class="check"><input type="checkbox" name="sheet' + index + '" checked>' +
       esc(d.name) + ' <span class="muted">· ' + d.rows.length + ' rows · ' + d.columns.length + ' columns</span></label>' +
@@ -421,7 +493,7 @@ async function confirmImport(buttonEl) {
   try {
     const result = await api('/api/import', {token: importPreview.token, datasets});
     state.collection = result.collections[0];
-    state.page = 'documents'; state.query = ''; state.status = '';
+    state.page = 'documents'; state.query = ''; state.status = '';state.department='';
     $('dialog').close();
     await loadData(); render();
     toast('Import complete. Open a document to review or route it.');
@@ -512,6 +584,16 @@ function fieldControl(column, value, index, record, writable) {
   const key = Object.keys(record.mappings).find(k => record.mappings[k] === column);
   const name = 'cell' + index;
   if (!writable) return '<textarea name="' + name + '" readonly>' + esc(value) + '</textarea>';
+  if (key === 'assigned') {
+    const choices=[['','Not assigned yet'],...state.departments.map(d=>[d.code,d.code+' — '+d.name])];
+    if (value && !choices.some(([v])=>v===value)) choices.push([value,value+' (imported assignment)']);
+    const staffId=record.assigned_user_id || '', historical=record.assigned_staff;
+    const staff=state.directory.filter(u=>u.department.toUpperCase()===value.toUpperCase());
+    if (historical && String(historical.id)===String(staffId) && !staff.some(u=>u.id===historical.id) && record.departments?.includes(historical.department.toUpperCase())) staff.push(historical);
+    return '<span class="assignment-fields"><span class="assignment-label">Department</span><select name="'+name+'" data-assignment-department aria-label="Assigned department">'+opts(choices,value)+'</select>'+
+      '<span class="assignment-label">Specific staff (optional)</span><select name="assignedStaff" aria-label="Assigned staff" '+(!value?'disabled':'')+'>'+opts([['','Department assignment only'],...staff.map(u=>[String(u.id),u.name+' · '+u.username+(u.archived_at||!u.active&&u.active!==undefined?' (inactive)':'')])],String(staffId))+'</select>'+
+      '<small>Choose a department first. Only its active staff are listed. Documents stay visible to that department.</small></span>';
+  }
   if (column === 'Action Taken') {
     const choices = actions.map((a,i)=>(i+1)+' - '+a);
     const custom = Boolean(value && !choices.includes(value));
@@ -522,14 +604,14 @@ function fieldControl(column, value, index, record, writable) {
       '<select name="'+name+'Preset" aria-label="Other action taken" data-action-preset="'+name+'" '+(custom?'required':'')+'>'+opts([['','Select a progress action'],...actionTakenOptions,['__manual__','Enter custom text…']],manual?'__manual__':custom?value:'')+'</select>'+
       '<textarea name="'+name+'Custom" aria-label="Specify action taken" placeholder="Specify the action taken" '+(manual?'required':'hidden')+'>'+esc(manual?value:'')+'</textarea></div>';
   }
-  if (['assigned', 'action', 'status'].includes(key)) {
-    const choices = key === 'assigned' ? ['', 'ORD', 'AFS', 'OPS', 'AFS / OPS'] :
-      key === 'action' ? ['', ...actions.map((a, i) => (i + 1) + ' - ' + a)] :
-        ['', 'For Routing', 'Routed', 'Received', 'Ongoing', 'Completed'];
-    if (value && !choices.includes(value)) choices.push(value);
+  if (['action', 'status'].includes(key)) {
+    if (key==='status') value=canonicalStatus(value);
+    const choices = key === 'action' ? ['', ...actions.map((a, i) => (i + 1) + ' - ' + a)] : ['', ...statuses];
+    const custom=key==='status' && Boolean(value) && !choices.includes(value);
+    if (value && !custom && !choices.includes(value)) choices.push(value);
     return '<select name="' + name + '" data-custom-select="' + name + '">' +
-      opts([...choices.map(v => [v, v || 'Select an option']), ['__custom__', 'Other / specify…']], value || '') +
-      '</select><input name="' + name + 'Custom" hidden placeholder="Enter the requested value">';
+      opts([...choices.map(v => [v, v || 'Select an option']), ['__custom__', 'Other / specify…']], custom?'__custom__':value || '') +
+      '</select><input name="' + name + 'Custom" '+(custom?'required':'hidden')+' value="'+esc(custom?value:'')+'" aria-label="Specify '+esc(column)+'" placeholder="'+(key==='status'?'Specify document status':'Enter the requested value')+'">';
   }
   if ((key === 'hard' || /date|deadline/i.test(column)) && (!value || /^\d{4}-\d{2}-\d{2}$/.test(value))) {
     return '<input type="date" name="' + name + '" value="' + esc(value) + '">';
@@ -546,6 +628,12 @@ function formCell(form, index) {
 }
 document.addEventListener('change', e => {
   const form = e.target.form;
+  if (e.target.hasAttribute('data-assignment-department')) {
+    const staff=form.elements.assignedStaff;
+    staff.disabled=!e.target.value;
+    staff.innerHTML=opts([['','Department assignment only'],...state.directory.filter(u=>u.department.toUpperCase()===e.target.value.toUpperCase()).map(u=>[String(u.id),u.name+' · '+u.username])]);
+    return;
+  }
   if (e.target.dataset.actionSelect || e.target.dataset.actionPreset) {
     const name = e.target.dataset.actionSelect || e.target.dataset.actionPreset;
     const active = form.elements[name].value === '__custom__';
@@ -567,6 +655,7 @@ async function openRecord(id, tab = 'details', editing = false) {
   state.editing = editing;
   state.record = await api('/api/record/' + id);
   state.draft = {...state.record.cells};
+  state.draftAssignedStaff = state.record.assigned_user_id;
   state.dirty = false;
   renderRecord(tab);
 }
@@ -582,17 +671,17 @@ function renderRecord(tab = 'details') {
   const fields = '<form id="recordForm" class="grid document-fields">' + referenceNote + [...r.columns.filter(isRowNumber),...r.columns.filter(c=>!isRowNumber(c))].map(column => {
     const index=r.columns.indexOf(column);
     if (column === r.mappings.reference) return '';
-    const value = isRowNumber(column) ? rowNumber(r) : state.draft?.[column] || '';
+    const value = isRowNumber(column) ? rowNumber(r) : column===r.mappings.status ? canonicalStatus(state.draft?.[column]) : state.draft?.[column] || '';
     const evidence = ['MOV 1','MOV 2'].includes(column);
     if (!state.editing || !writable.has(column)) {
       return '<div class="display-field"><span class="field-label">' + esc(isRowNumber(column)?'No.':column) + '</span><div class="display-value">' +
         (evidence ? movMarkup(r,column) : esc(value || '—')) + '</div></div>';
     }
     return '<label>' + esc(column) +
-      fieldControl(column,value,index,r,true) +
+      fieldControl(column,value,index,{...r,assigned_user_id:state.draftAssignedStaff},true) +
       (evidence ? '<small>Enter a link or note here. Use Files & MOVs to upload supporting files.</small>' + movMarkup(r,column,true) : '') +
       '</label>';
-  }).join('') + '</form>';
+  }).join('') + (!state.editing || !writable.has(r.mappings.assigned) ? '<div class="display-field"><span class="field-label">Assigned staff</span><div class="display-value">'+esc(r.assigned_staff?r.assigned_staff.name+' · '+r.assigned_staff.department+(r.assigned_staff.archived_at||!r.assigned_staff.active?' (inactive account)':''):'Department assignment only')+'</div></div>' : '') + '</form>';
   const files = '<section><div class="files">' +
     (r.files.length ? r.files.map(f => '<div class="file-row">' + icon('file') + fileLink(f) + '<small>' + esc(f.kind === 'MOV' ? 'MOV ' + f.slot : f.kind) + '</small></div>').join('') : '<p class="muted">No attachments yet.</p>') + '</div></section>' +
     (!deleted && r.editable_columns.length ? '<section class="section"><h3>Add a document or MOV</h3><form id="attachForm" class="grid">' +
@@ -607,7 +696,7 @@ function renderRecord(tab = 'details') {
       '" data-tab="' + key + '">' + label + (key === 'files' ? ' (' + r.files.length + ')' : '') + '</button>').join('') + '</div>' +
     (tab === 'details' ? fields + sourceRecordInfo(r) + attachmentSummary(r) : tab === 'files' ? files : history),
     (editor() && !deleted && state.editing ? button('Delete', 'delete', 'danger', 'trash') : '') +
-    (!editor() && !deleted && statusOf(r) === 'Routed' && r.mappings.status ?
+    (state.user.role==='staff' && !deleted && statusOf(r) === 'For routing' && mapped(r,'assigned') && r.mappings.status ?
       button('Acknowledge receipt', 'acknowledge', 'primary', 'check') : '') +
     button('Print slip', 'printslip', '', 'print') +
     '<a class="btn" href="/api/docx/' + r.id + '">' + icon('download') + 'Word template</a>' +
@@ -620,7 +709,7 @@ function renderRecord(tab = 'details') {
     e.submitter.disabled = true;
     try {
       const cells = {...r.cells, ...Object.fromEntries(r.columns.filter(column => column !== r.mappings.reference && writable.has(column)).map(column => [column, formCell(e.target,r.columns.indexOf(column))]))};
-      await api('/api/save', {id:r.id, version:r.version, cells});
+      await api('/api/save', {id:r.id, version:r.version, cells, ...(e.target.elements.assignedStaff?{assigned_user_id:e.target.elements.assignedStaff.value||null}:{})});
       await loadData(); render(); await openRecord(r.id);
       toast('Document updated.');
     } catch (err) { showError(err); e.submitter.disabled = false; }
@@ -640,13 +729,14 @@ function newDocument() {
   const collection = state.collections.find(c => c.id === state.collection);
   const mappings = collection?.mappings || {hard:'Hard Copy Routed', reference:'Ref. No.', subject:'Subject', assigned:'Assigned to', action:'Requested Actions', status:'Status'};
   if (!mappings.subject) { toast('Map the Subject column in Worksheet settings before adding a document.'); return; }
-  state.newDraft = {collection, mappings, baseColumns:[...(collection?.columns || standard)], columns:[...(collection?.columns || standard)], cells:{[mappings.status]:'For Routing'}, source:null, sourceRow:0, auto:{}};
+  state.newDraft = {collection, mappings, baseColumns:[...(collection?.columns || standard)], columns:[...(collection?.columns || standard)], cells:{[mappings.status]:'For routing',[mappings.assigned]:state.department}, assigned_user_id:null, source:null, sourceRow:0, auto:{}};
   renderNewDocument();
 }
 function captureNewDocument() {
   const draft=state.newDraft, form=$('newForm');
   if (!draft || !form) return;
   draft.columns.forEach((column,index)=>{ if (form.elements['cell'+index]) draft.cells[column]=formCell(form,index); });
+  draft.assigned_user_id=form.elements.assignedStaff?.value||null;
 }
 function sourceDetails(info) {
   return '<div class="source-meta">'+[['From',info.sender],['To',info.to],['Sent',info.sent],['Original reference',info.source_reference]].filter(([,v])=>v).map(([k,v])=>'<div><span>'+k+'</span><strong>'+esc(v)+'</strong></div>').join('')+'</div>'+
@@ -661,7 +751,7 @@ function sourceRecordInfo(record) {
 function renderNewDocument() {
   const draft=state.newDraft;
   const {collection,columns,mappings}=draft;
-  const record={columns,mappings};
+  const record={columns,mappings,assigned_user_id:draft.assigned_user_id};
   const excluded=new Set([mappings.reference,'Action Taken','MOV 1','MOV 2',...columns.filter(isRowNumber)]);
   const fields=columns.filter(c=>!excluded.has(c));
   const ordered=[mappings.subject,mappings.hard,mappings.status,mappings.assigned,mappings.action,...fields.filter(c=>![mappings.subject,mappings.hard,mappings.status,mappings.assigned,mappings.action].includes(c))].filter(c=>fields.includes(c));
@@ -676,8 +766,8 @@ function renderNewDocument() {
       '<p class="source-review-note">Review the subject and routing below. The original source and extracted attachments will be saved with this document.</p></div>':'')+'</section>';
   modal('New document',collection?collection.name:'Register correspondence for routing',importPanel+
     '<form id="newForm" class="grid document-fields new-document-form"><div class="reference-band"><span>Reference no.</span><strong>Generated automatically on save</strong><small>Action Taken and supporting MOVs can be added after registration.</small></div>'+
-    ordered.map(c=>'<label '+(c===mappings.subject?'class="full"':'')+'>'+esc(c)+fieldControl(c,draft.cells[c]||'',columns.indexOf(c),record,true)+'</label>').join('')+'</form>',
-    button('Cancel','close')+'<button form="newForm" class="btn primary">Register document</button>');
+    ordered.map(c=>'<label '+([mappings.subject,mappings.action].includes(c)?'class="full"':'')+'>'+esc(c)+fieldControl(c,draft.cells[c]||'',columns.indexOf(c),record,true)+'</label>').join('')+'</form>',
+    button('Cancel','close')+'<button form="newForm" class="btn primary">Register document</button>','document');
   $('newForm').elements['cell'+columns.indexOf(mappings.subject)].required=true;
   $('newSourceFile').onchange=async e=>{
     const file=e.target.files[0];if (!file) return;
@@ -698,8 +788,8 @@ function renderNewDocument() {
     e.preventDefault();e.submitter.disabled=true;
     try {
       captureNewDocument();
-      const result=await api('/api/new',{collection:collection?.id,cells:draft.cells,source_token:draft.source?.token,source_row:draft.sourceRow});
-      state.dirty=false;state.newDraft=null;state.page='documents';state.collection=result.collection;
+      const result=await api('/api/new',{collection:collection?.id,cells:draft.cells,assigned_user_id:draft.assigned_user_id,source_token:draft.source?.token,source_row:draft.sourceRow});
+      state.dirty=false;state.newDraft=null;state.page='documents';state.collection=result.collection;state.department='';
       await loadData();render();await openRecord(result.id);toast('Document registered.');
     } catch(error) {showError(error);e.submitter.disabled=false;}
   };
@@ -723,7 +813,7 @@ function deleteDocument() {
   const r = state.record;
   modal('Move document to Deleted?', refOf(r), '<p class="help"><strong>' + esc(subjectOf(r)) +
     '</strong></p><p class="notice">You can restore this document later. Its attachments and activity history will be kept.</p>',
-    button('Cancel', 'backrecord') + button('Move to Deleted', 'confirmdelete', 'danger', 'trash'));
+    button('Cancel', 'backrecord') + button('Move to Deleted', 'confirmdelete', 'danger', 'trash'),'compact');
 }
 async function restoreDocument(id) {
   const r = state.deleted.find(item => item.id === id);
@@ -766,7 +856,8 @@ function captureDraft() {
   for (let index=0; index<state.record.columns.length; index++) {
     if (form.elements['cell'+index]) state.draft[state.record.columns[index]] = formCell(form,index);
   }
-  state.dirty = state.record.columns.some(column => state.draft[column] !== (state.record.cells[column] || ''));
+  if (form.elements.assignedStaff) state.draftAssignedStaff=form.elements.assignedStaff.value||null;
+  state.dirty = state.record.columns.some(column => state.draft[column] !== (state.record.cells[column] || '')) || String(state.draftAssignedStaff||'')!==String(state.record.assigned_user_id||'');
 }
 document.addEventListener('input', e => {
   if (e.target.closest('#newForm')) {captureNewDocument();state.dirty=true;}
@@ -889,7 +980,7 @@ function addAccount() {
     '<label>Department code<input name="department" required list="departmentCodes" placeholder="ORD, AFS, OPS"><datalist id="departmentCodes"><option>ORD</option><option>AFS</option><option>OPS</option></datalist></label>' +
     '<label>Access<select name="role">' + opts([['staff','Department staff'], ['records','Records officer'], ['viewer','Office reviewer (read all)'], ['admin','Administrator']]) + '</select></label>' +
     '<div class="full">' + passwordInput('password', 'Initial password', 'new-password') + '</div></form>',
-    button('Cancel', 'close') + '<button form="accountForm" class="btn primary">Create staff account</button>');
+    button('Cancel', 'close') + '<button form="accountForm" class="btn primary">Create staff account</button>','medium');
   $('accountForm').onsubmit = async e => {
     e.preventDefault();
     try {
@@ -911,7 +1002,7 @@ function editAccount(id) {
     opts([['1','Active'], ['0','Disabled']], account.active ? '1' : '0') +
     '</select></label><label>Account type<select name="account_type">' +
     opts([['individual','Individual staff'], ['department','Shared department (legacy)']], account.account_type) +
-    '</select></label></form>', button('Cancel', 'close') + '<button form="editAccountForm" class="btn primary">Save account</button>');
+    '</select></label></form>', button('Cancel', 'close') + '<button form="editAccountForm" class="btn primary">Save account</button>','medium');
   $('editAccountForm').onsubmit = async e => {
     e.preventDefault();
     try {
@@ -925,13 +1016,13 @@ function requestRecovery(id) {
   modal('Replace recovery code?', account.username,
     '<p class="notice">A new code will replace the current recovery code for ' + esc(account.username) +
     '. Save the new code and give it directly to the account owner.</p>',
-    button('Cancel', 'close') + '<button class="btn primary" data-confirm-recovery="' + id + '">Generate new code</button>');
+    button('Cancel', 'close') + '<button class="btn primary" data-confirm-recovery="' + id + '">Generate new code</button>','compact');
 }
 function changePassword() {
   modal('Change your password', state.user.username,
     '<form id="passwordForm" class="stack">' + passwordInput('current', 'Current password') +
     passwordInput('password', 'New password', 'new-password') + '</form>',
-    button('Cancel', 'close') + '<button form="passwordForm" class="btn primary">Save password</button>');
+    button('Cancel', 'close') + '<button form="passwordForm" class="btn primary">Save password</button>','compact');
   $('passwordForm').onsubmit = async e => {
     e.preventDefault();
     try {
@@ -944,11 +1035,11 @@ function guide() {
   modal('Quick guide', 'The daily document workflow',
     '<div class="help"><ol><li><strong>ORD logs in and imports a file.</strong> Choose the existing Excel matrix or incoming document. Check the preview and confirm the import.</li>' +
     '<li><strong>Start from an email or file.</strong> New document &gt; Import email or file fills available details from a saved EML/MSG, PDF, Word document, Excel/CSV or another source. Review the subject and routing before registering. Emails retain their message and attachments; Excel/CSV lets you choose one source row.</li>' +
-    '<li><strong>Review and route.</strong> In Document register, choose View to read a record or Edit to update it. Check its subject and reference number, choose the responsible department and requested action, then save.</li>' +
+    '<li><strong>Review and route.</strong> In Document register, choose View to read a record or Edit to update it. Check its subject and reference number, choose a department, optionally select one of its staff, choose the requested action, then save. Expand Departments to view each department’s documents.</li>' +
     '<li><strong>The department acts.</strong> Each staff member logs in with their own username, opens Assigned documents, records its Action Taken using NCSC actions 1–9 or Other / specify, and adds MOV files or links.</li>' +
     '<li><strong>Settings.</strong> Expand Settings in the sidebar for account management, change password, Quick guide, and Deleted documents. Account management is available to administrators.</li>' +
     '<li><strong>Update and print.</strong> Save the status. Print slip automatically opens the browser print dialog using the supplied Word template. Use Select documents and click rows to print different documents on a shared NCSC routing sheet. The host needs Microsoft Word or LibreOffice.</li>' +
-    '<li><strong>Delete and restore.</strong> Records officers can move individual or selected documents to Deleted documents. Restore returns them with their files and history. Only administrators can delete a document permanently; type its reference number to confirm.</li>' +
+    '<li><strong>Delete and restore.</strong> Records officers can move individual or selected documents to Deleted documents. Restore returns them with their files and history. Use Select documents and Select all shown in Deleted documents to restore a batch. Only administrators can delete permanently; a confirmation is required. Imported files also supports Select files and Select all; deleting a source moves its active rows to Deleted documents.</li>' +
     '<li><strong>Retire staff access.</strong> Administrators can Archive an account in Account management. The account loses access while its past activity remains identifiable. Restore from Archived accounts, then Edit to enable it.</li>' +
     '<li><strong>Print a readable matrix.</strong> Print matrix opens the print dialog in A4 landscape. Routing and follow-up fields use separate sections with the same reference numbers. Extra imported columns continue in further sections. Table entries consistently use Arial 10 pt.</li></ol>' +
     '<p class="notice">Readable PDFs can produce tables or page text. Scanned pages require manual encoding. Review the preview for every new file layout.</p>' +
@@ -964,7 +1055,9 @@ function downloadText(name, text) {
 /* Interaction dispatch */
 document.addEventListener('click', async e => {
   const row=e.target.closest('[data-select-row]');
-  if (state.selecting && row && !e.target.closest('a,button,input,select,textarea')) {toggleSelected(row.dataset.selectRow);return;}
+  if (isSelecting() && row && !e.target.closest('a,button,input,select,textarea')) {toggleSelected(row.dataset.selectRow);return;}
+  const source=e.target.closest('[data-select-import]');
+  if (state.importSelecting && source && !e.target.closest('a,button,input,select,textarea')) {toggleImport(source.dataset.selectImport);return;}
   const attachment = e.target.closest('a[data-file-id],a[data-mov-record]');
   if (attachment) {
     e.preventDefault();
@@ -981,7 +1074,11 @@ document.addEventListener('click', async e => {
   const target = e.target.closest('button');
   if (!target) return;
   try {
-    if (target.dataset.removeSelected) {state.selected.delete(target.dataset.removeSelected);drawRows();return;}
+    if (target.dataset.removeSelected) {documentSelection().delete(target.dataset.removeSelected);drawRows();return;}
+    if (target.dataset.department) {
+      state.department=target.dataset.department;state.departmentsOpen=true;state.page='documents';state.query='';state.status='';state.collection='';render();return;
+    }
+    if (target.dataset.deleteImport) return deleteImportedSources([target.dataset.deleteImport]);
     if (target.dataset.reveal) {
       const input = target.closest('form').elements[target.dataset.reveal];
       input.type = input.type === 'password' ? 'text' : 'password';
@@ -991,10 +1088,11 @@ document.addEventListener('click', async e => {
       return;
     }
     if (target.dataset.page) {
-      state.page = target.dataset.page; if (['accounts','deleted'].includes(state.page)) state.settingsOpen=true; state.query = ''; state.status = ''; state.collection = '';
+      state.page = target.dataset.page; if (['accounts','deleted'].includes(state.page)) state.settingsOpen=true; state.query = ''; state.status = ''; state.collection = '';state.department='';
       render(); return;
     }
     if (target.hasAttribute('data-status')) {
+      if (state.page!=='documents') state.department='';
       state.status = target.dataset.status; state.page = 'documents'; state.collection = ''; render(); return;
     }
     if (target.dataset.record) return await openRecord(target.dataset.record);
@@ -1006,7 +1104,7 @@ document.addEventListener('click', async e => {
       return renderRecord(target.dataset.tab);
     }
     if (target.dataset.source) {
-      state.collection = target.dataset.source; state.page = 'documents'; state.query = ''; state.status = ''; render(); return;
+      state.collection = target.dataset.source; state.page = 'documents'; state.query = ''; state.status = '';state.department=''; render(); return;
     }
     if (target.dataset.map) return mappingDialog(target.dataset.map);
     if (target.dataset.editAccount) return editAccount(target.dataset.editAccount);
@@ -1020,6 +1118,8 @@ document.addEventListener('click', async e => {
       return recoveryCodes({[account.username]:result.recovery_code});
     }
     switch (target.dataset.action) {
+      case 'departments':
+        state.departmentsOpen=!state.departmentsOpen;$('departmentsMenu').hidden=!state.departmentsOpen;target.setAttribute('aria-expanded',state.departmentsOpen);break;
       case 'settings':
         state.settingsOpen = !state.settingsOpen;
         $('settingsMenu').hidden = !state.settingsOpen;
@@ -1032,6 +1132,7 @@ document.addEventListener('click', async e => {
         break;
       case 'logout':
         await api('/api/logout', {}); state.selected.clear(); state.selecting=false; state.collection = ''; state.page = 'dashboard'; state.settingsOpen = false;
+        state.department='';state.departmentsOpen=false;state.deletedSelected.clear();state.importSelected.clear();state.deletedSelecting=false;state.importSelecting=false;
         $('dialog').close(); await start(); break;
       case 'forgot': forgotPassword(); break;
       case 'downloadcodes': {
@@ -1040,7 +1141,23 @@ document.addEventListener('click', async e => {
           Object.entries(codes).map(([name, code]) => name + '\n' + code).join('\n\n'));
         break;
       }
-      case 'register': state.page = 'documents'; render(); break;
+      case 'register': state.page = 'documents';state.department='';state.collection='';state.query='';state.status=''; render(); break;
+      case 'selectimports': state.importSelecting=!state.importSelecting;renderImports();break;
+      case 'selectallimports': state.collections.filter(c=>c.count>0).forEach(c=>state.importSelected.add(c.id));renderImports();break;
+      case 'clearimports': state.importSelected.clear();renderImports();break;
+      case 'deleteimports': deleteImportedSources();break;
+      case 'confirmdeleteimports': {
+        target.disabled=true;
+        try {
+          const result=await api('/api/archive-collections',{items:JSON.parse($('dialog').dataset.batch)});
+          state.importSelected.clear();state.importSelecting=false;$('dialog').close();await loadData();render();toast(result.count+' document(s) moved to Deleted documents.');
+        } catch(error) {target.disabled=false;throw error;}
+        break;
+      }
+      case 'restoreselected': deletedBatchDialog();break;
+      case 'purgeselected': deletedBatchDialog(true);break;
+      case 'allworksheets': case 'noworksheets':
+        $('importReview').querySelectorAll('input[type=checkbox]').forEach(input=>input.checked=target.dataset.action==='allworksheets');break;
       case 'import': importDialog(); break;
       case 'repreview': {
         const form = $('importReview');
@@ -1067,7 +1184,7 @@ document.addEventListener('click', async e => {
       case 'editrecord': state.editing = true; renderRecord(); break;
       case 'canceledit':
         if (!state.dirty || window.confirm('Discard unsaved changes to this document?')) {
-          state.editing = false; state.draft = {...state.record.cells}; state.dirty = false; renderRecord();
+          state.editing = false; state.draft = {...state.record.cells};state.draftAssignedStaff=state.record.assigned_user_id; state.dirty = false; renderRecord();
         }
         break;
       case 'acknowledge': {
@@ -1098,10 +1215,10 @@ document.addEventListener('click', async e => {
       case 'clear': state.collection = ''; state.query = ''; state.status = ''; renderDocuments(); break;
       case 'refresh': await loadData(); render(); toast('Register refreshed.'); break;
       case 'printselected': printSlips(selectedRows().map(r=>r.id)); break;
-      case 'selectmode': state.selecting=!state.selecting; renderDocuments(); break;
-      case 'selectshown': for (const row of filteredRows()) state.selected.add(row.id); drawRows(); break;
+      case 'selectmode': if(state.page==='deleted')state.deletedSelecting=!state.deletedSelecting;else state.selecting=!state.selecting; renderDocuments(); break;
+      case 'selectshown': for (const row of filteredRows()) documentSelection().add(row.id); drawRows(); break;
       case 'exportselected': exportDialog(true); break;
-      case 'clearselection': state.selected.clear(); drawRows(); break;
+      case 'clearselection': documentSelection().clear(); drawRows(); break;
       case 'printslip':
         if (state.dirty) toast('Save your changes before printing the routing slip.');
         else await printSlip();

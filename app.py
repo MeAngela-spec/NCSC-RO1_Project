@@ -172,7 +172,7 @@ def finish_file_deletions(c):
                 draft_failures += 1
     return c.execute("SELECT COUNT(*) FROM pending_file_deletions").fetchone()[0] + draft_failures
 
-def permanently_delete(c, record, user):
+def permanently_delete(c, record, user, commit=True):
     """Remove a deleted record and its owned files, preserving shared imports."""
     rid, cid = record["id"], record["collection_id"]
     paths = [row["path"] for row in c.execute("SELECT path FROM files WHERE record_id=?", (rid,))]
@@ -195,8 +195,10 @@ def permanently_delete(c, record, user):
         c.execute("INSERT OR IGNORE INTO pending_file_deletions VALUES(?)", (relative,))
     administration_event(c, user, "Document permanently deleted", {"reference":record["cells"].get("Ref. No.", rid)})
     # Do not erase shared blobs unless their database deletion is durable.
-    c.commit()
-    return finish_file_deletions(c)
+    if commit:
+        c.commit()
+        return finish_file_deletions(c)
+    return 0
 
 def recovery_code():
     return "-".join(secrets.token_hex(3).upper() for _ in range(4))
@@ -540,7 +542,71 @@ def get_record(c, rid):
                       for slot,column in [(1,"MOV 1"),(2,"MOV 2")]}
     source=c.execute("SELECT info FROM record_sources WHERE record_id=?",(rid,)).fetchone()
     result["source"] = source_summary(json.loads(source["info"])) if source else None
+    result["departments"] = assigned_departments(result["cells"].get(result["mappings"].get("assigned"), ""), department_catalog(c))
+    staff = c.execute("SELECT id,name,username,department,active,archived_at FROM users WHERE id=?",
+                      (result["assigned_user_id"],)).fetchone()
+    result["assigned_staff"] = dict(staff) if staff else None
     return result
+
+def department_catalog(c):
+    catalog = dict(DEPARTMENTS)
+    for row in c.execute("SELECT DISTINCT department FROM users ORDER BY department"):
+        code = row["department"].strip().upper()
+        if code:
+            catalog.setdefault(code, code)
+    return catalog
+
+def assigned_departments(value, catalog):
+    result = []
+    for code, name in catalog.items():
+        aliases = [code, name] + (["OPERATIONS"] if code == "OPS" else [])
+        if any(re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", str(value), re.I) for alias in aliases):
+            result.append(code)
+    return result
+
+def assignment_staff(c, body, departments, previous=None):
+    """Validate staff membership on the host, including requests made outside the UI."""
+    value = body.get("assigned_user_id", previous)
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool) or not str(value).isdigit():
+        raise ValueError("Choose a valid staff account.")
+    staff = c.execute("SELECT * FROM users WHERE id=?", (int(value),)).fetchone()
+    # Retain an existing historical assignment, even if the account was retired.
+    if previous == int(value) and staff and staff["department"].upper() in departments:
+        return int(value)
+    if not staff or not staff["active"] or staff["archived_at"] or staff["account_type"] != "individual" or staff["role"] == "viewer":
+        raise ValueError("Choose an active staff account.")
+    if len(departments) != 1 or staff["department"].upper() != departments[0]:
+        raise ValueError("The selected staff member must belong to the selected department.")
+    return int(value)
+
+def canonical_status(value):
+    value = str(value).strip()
+    choices = {"forrouting":"For routing", "routed":"For routing", "received":"Received",
+               "pending":"Pending", "ongoing":"Ongoing", "completed":"Completed"}
+    return choices.get(norm(value), value or "For routing")
+
+def batch_records(c, user, items, deleted):
+    if not isinstance(items, list) or not 1 <= len(items) <= 10000:
+        raise ValueError("Select between 1 and 10,000 documents.")
+    records, seen = [], set()
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or item["id"] in seen:
+            raise ValueError("The selection contains invalid or duplicate documents.")
+        record = get_record(c, item["id"])
+        if bool(record["deleted_at"]) != deleted or item.get("version") != record["version"]:
+            raise ValueError("A selected document changed. Refresh and select again. No documents were changed.")
+        if not department_access(user, record):
+            raise PermissionError("One of the selected documents is outside your access.")
+        records.append(record)
+        seen.add(record["id"])
+    return records
+
+def collection_revision(c, cid):
+    versions = [(row["id"], row["version"], row["deleted_at"]) for row in c.execute(
+        "SELECT id,version,deleted_at FROM records WHERE collection_id=? ORDER BY id", (cid,))]
+    return hashlib.sha256(json.dumps(versions).encode()).hexdigest()
 
 def may_edit(user):
     return user["role"] in ("admin", "records", "staff")
@@ -551,10 +617,7 @@ def role_editor(user):
 def department_access(user, record):
     if user["role"] != "staff":
         return True
-    assigned = record["cells"].get(record["mappings"].get("assigned", ""), "")
-    code = user["department"]
-    pattern = r"OPS|OPERATIONS" if code.upper() == "OPS" else re.escape(code)
-    return bool(re.search(r"(?<![\w])(?:" + pattern + r")(?![\w])", str(assigned), re.IGNORECASE))
+    return user["department"].upper() in record["departments"]
 
 PRINT_LOCK = threading.Lock()
 
@@ -895,6 +958,8 @@ class Handler(BaseHTTPRequestHandler):
                     item["columns"] = json.loads(item["columns"])
                     item["mappings"] = json.loads(item["mappings"])
                     item["count"] = c.execute("SELECT COUNT(*) FROM records WHERE collection_id=? AND deleted_at IS NULL", (item["id"],)).fetchone()[0]
+                    if role_editor(user):
+                        item["revision"] = collection_revision(c, item["id"])
                     if user["role"] != "staff" or any(
                         department_access(user, get_record(c, row["id"]))
                         for row in c.execute("SELECT id FROM records WHERE collection_id=? AND deleted_at IS NULL", (item["id"],))
@@ -952,7 +1017,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(200, {"available":bool(office_converter()) or os.name == "nt"})
             elif path == "/api/directory":
                 self.respond(200, [dict(r) for r in c.execute(
-                    "SELECT id,name,username,department FROM users WHERE active=1 AND archived_at IS NULL AND account_type='individual' ORDER BY department,name")])
+                    "SELECT id,name,username,department FROM users WHERE active=1 AND archived_at IS NULL AND account_type='individual' AND role!='viewer' ORDER BY department,name")])
+            elif path == "/api/departments":
+                catalog = department_catalog(c)
+                self.respond(200, [{"code":code,"name":name} for code,name in catalog.items()
+                                  if user["role"] != "staff" or code == user["department"].upper()])
             elif path == "/api/users":
                 if user["role"] != "admin":
                     self.respond(403, {"error": "Administrator access required."})
@@ -1189,11 +1258,21 @@ class Handler(BaseHTTPRequestHandler):
                 old_assigned = r["cells"].get(r["mappings"].get("assigned"), "")
                 new_assigned = cells.get(r["mappings"].get("assigned"), "")
                 status_column = r["mappings"].get("status")
-                if role_editor(user) and new_assigned and status_column and cells.get(status_column) in ("", "For Routing"):
-                    cells[status_column] = "Routed"
-                c.execute("UPDATE records SET cells=?,version=version+1 WHERE id=?",
-                          (json.dumps(cells), r["id"]))
+                if status_column:
+                    cells[status_column] = canonical_status(cells.get(status_column, ""))
+                staff_id = r["assigned_user_id"]
+                if role_editor(user):
+                    codes = assigned_departments(new_assigned, department_catalog(c))
+                    previous = staff_id
+                    if "assigned_user_id" not in body and new_assigned != old_assigned:
+                        previous = None
+                    staff_id = assignment_staff(c, body, codes, previous)
+                c.execute("UPDATE records SET cells=?,assigned_user_id=?,version=version+1 WHERE id=?",
+                          (json.dumps(cells), staff_id, r["id"]))
                 event(c, r["id"], user, "Updated record")
+                if staff_id != r["assigned_user_id"]:
+                    name = c.execute("SELECT name FROM users WHERE id=?", (staff_id,)).fetchone() if staff_id else None
+                    event(c, r["id"], user, "Assigned staff: " + (name["name"] if name else "Department assignment only"))
                 if new_assigned and (new_assigned != old_assigned or
                     cells.get(r["mappings"].get("action"), "") != r["cells"].get(r["mappings"].get("action"), "")):
                     event(c, r["id"], user, "Routed record", {"from": user["department"], "to": new_assigned,
@@ -1258,14 +1337,16 @@ class Handler(BaseHTTPRequestHandler):
                     cells[reference] = next_reference(c)
                 assigned = cells.get(mapping.get("assigned"), "")
                 status_column = mapping.get("status")
-                if status_column and not cells.get(status_column):
-                    cells[status_column]="For Routing"
-                if assigned and status_column and cells.get(status_column) in ("", "For Routing"):
-                    cells[status_column] = "Routed"
+                if status_column:
+                    cells[status_column] = canonical_status(cells.get(status_column, ""))
+                staff_id = assignment_staff(c, body, assigned_departments(assigned, department_catalog(c)))
                 rid = uuid.uuid4().hex
-                c.execute("INSERT INTO records(id,collection_id,cells,version,created) VALUES(?,?,?,?,?)",
-                          (rid, cid, json.dumps(cells), 1, now()))
+                c.execute("INSERT INTO records(id,collection_id,cells,version,created,assigned_user_id) VALUES(?,?,?,?,?,?)",
+                          (rid, cid, json.dumps(cells), 1, now(), staff_id))
                 event(c, rid, user, "Document registered")
+                if staff_id:
+                    staff_name = c.execute("SELECT name FROM users WHERE id=?", (staff_id,)).fetchone()["name"]
+                    event(c, rid, user, "Assigned staff: " + staff_name)
                 if source:
                     entries=[{"path":"original","name":source["filename"],"kind":
                               "Original import" if source["type"]=="Spreadsheet" else "Source email" if source["type"]=="Email" else "Source document"}]+metadata["attachments"]
@@ -1282,6 +1363,47 @@ class Handler(BaseHTTPRequestHandler):
                           "date":datetime.now().strftime("%m/%d/%Y"), "time":datetime.now().strftime("%I:%M %p"),
                           "note":cells.get(mapping.get("action"), ""), "received":""})
                 self.respond(200, {"id": rid, "collection": cid})
+            elif path == "/api/archive-collections":
+                if not role_editor(user):
+                    raise PermissionError("Records administration access required.")
+                items = body.get("items")
+                if not isinstance(items, list) or not 1 <= len(items) <= 10000:
+                    raise ValueError("Select at least one imported file or worksheet.")
+                records, seen = [], set()
+                for item in items:
+                    if not isinstance(item, dict) or not isinstance(item.get("id"), str) or item["id"] in seen:
+                        raise ValueError("Invalid or duplicate worksheet selection.")
+                    cid = item["id"]
+                    if not c.execute("SELECT 1 FROM collections WHERE id=?", (cid,)).fetchone() or item.get("revision") != collection_revision(c, cid):
+                        self.respond(409, {"error":"A selected worksheet changed. Refresh and select again. No documents were moved."})
+                        return
+                    records += [get_record(c, row["id"]) for row in c.execute("SELECT id FROM records WHERE collection_id=? AND deleted_at IS NULL", (cid,))]
+                    seen.add(cid)
+                if not records or len(records) > 10000:
+                    raise ValueError("Select worksheets containing between 1 and 10,000 active documents.")
+                for record in records:
+                    c.execute("UPDATE records SET deleted_at=?,version=version+1 WHERE id=?", (now(), record["id"]))
+                    event(c, record["id"], user, "Moved to Deleted documents (selected imported worksheets)")
+                self.respond(200, {"ok":True,"count":len(records)})
+            elif path in ("/api/restore-batch", "/api/purge-batch"):
+                if not role_editor(user):
+                    raise PermissionError("Records administration access required.")
+                if path == "/api/purge-batch" and user["role"] != "admin":
+                    raise PermissionError("Only an administrator can permanently delete documents.")
+                records = batch_records(c, user, body.get("items"), deleted=True)
+                if path == "/api/purge-batch":
+                    if str(body.get("confirmation", "")).strip() != "DELETE " + str(len(records)):
+                        raise ValueError("Type DELETE followed by the selected document count to confirm.")
+                    for record in records:
+                        permanently_delete(c, record, user, commit=False)
+                    c.commit()
+                    pending = finish_file_deletions(c)
+                    self.respond(200, {"ok":True,"count":len(records),"cleanup_pending":pending})
+                else:
+                    for record in records:
+                        c.execute("UPDATE records SET deleted_at=NULL,version=version+1 WHERE id=?", (record["id"],))
+                        event(c, record["id"], user, "Document restored (selected batch)")
+                    self.respond(200, {"ok":True,"count":len(records)})
             elif path == "/api/archive-batch":
                 if not role_editor(user):
                     raise PermissionError("Records administration access required.")

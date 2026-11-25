@@ -408,3 +408,37 @@ The title and controls are real HTML with local system fonts. The compact
 Log in button and single show/hide control work without online dependencies.
 Official website https://www.ncsc.gov.ph/
 The supplied NCSC seal and original routing-slip template are included.
+
+DEPARTMENTS, ASSIGNMENT AND BATCH ACTIONS (VERSION 0.1.4)
+Expand Departments in the sidebar and choose ORD, AFS, OPS or an office code
+used by a registered staff account. The folder lists documents assigned to that
+department. Multi-department imported rows appear in each matching folder.
+The Document register remains available for all accessible and unassigned rows.
+Staff accounts continue to see only their own department's documents.
+
+New document and Edit document offer Department first, then Specific staff
+(optional). Only active individual staff in that department can be newly
+assigned. View document, the register and activity history identify the staff
+assignment. The host validates membership; department access remains unchanged.
+
+Statuses: For routing, Received, Pending, Ongoing, Completed, Other / specify.
+Custom status text is retained; use Other statuses in the register filter.
+Legacy Routed / For Routing values display as For routing without rewriting
+original imported cells until a document is saved. Routing history is retained.
+
+Imported files: Select files, click source cards, then Select all or Clear
+selection. Delete selected moves all active rows in those worksheets to Deleted
+documents together. It preserves source files, MOVs and history. A worksheet
+with no active rows disappears from Imported files and returns on restoration.
+
+Deleted documents: Select documents, click rows or Select all shown (current
+filters), then Restore selected. Administrators also have Delete permanently;
+type DELETE followed by the selected count, for example DELETE 3. Individual
+Restore/Delete buttons remain available outside selection mode. A batch checks
+all versions before making changes. Refresh and reselect if any row changed.
+Shared workbooks are removed only after their last referencing document is
+permanently deleted. Permanent deletion cannot be undone.
+
+Password and recovery dialogs use compact widths. Account forms use medium
+widths; document details, import previews and file viewers keep room for their
+content. Everything above works on the existing offline office host.

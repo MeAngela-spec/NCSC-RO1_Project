@@ -531,3 +531,45 @@ dialog[data-size=compact] select { height: 44px; }
  body.printing-page .print-sheet img { width: 100%; height: 100%; margin: 0; padding: 0; }
 }
 @media screen and (max-width:850px) { .print-pages { justify-items: start; overflow: auto; } .printing-header { height: auto; flex-wrap: wrap; } .printing-header .printing-controls { margin-left: 0; } }
+
+/* Compact office forms and source selection. */
+dialog[data-size=medium] { width: min(760px, calc(100vw - 32px)); }
+dialog[data-size=compact] input:not([type=checkbox]) { height: 44px; }
+dialog[data-size=compact] .password-wrap button { top: 7px; right: 7px; }
+.assignment-fields { display: grid; gap: 7px; min-width: 0; }
+.assignment-label { font-size: 12px; color: #69758c; font-weight: 500; }
+.assignment-fields .assignment-label:not(:first-child) { margin-top: 7px; }
+.assignment-fields small { font-weight: 400; font-size: 12px; line-height: 1.5; color: #69758c; }
+.assignment-fields select { width: 100%; min-width: 0; text-overflow: ellipsis; }
+.source-card { min-width: 0; }
+.source-card > div:first-child { min-width: 0; }
+.source-card strong { overflow-wrap: anywhere; }
+.source-card .tools { flex-shrink: 0; flex-wrap: wrap; }
+.source-card[data-select-import] { cursor: pointer; }
+.source-card[data-select-import]:hover { background: #f5f8fe; }
+.source-card.selected-source { background: #edf3ff; box-shadow: inset 3px 0 var(--red); }
+.source-card[data-select-import]:focus-visible { outline: 3px solid #4670b9; outline-offset: -3px; }
+.pill.pending { background: #fff4df; color: #865b0e; }
+.pill.forrouting { background: #edf1fc; color: #36589c; }
+@media(max-width:700px) { .source-card { align-items: flex-start; flex-direction: column; } .source-card .tools { width: 100%; } }
+
+.assigned-person { display: block; margin-top: 4px; color: #68758a; font-size: 12px; white-space: normal; }
+dialog[data-size=document] { width: min(900px, calc(100vw - 32px)); }
+dialog footer { position: sticky; bottom: 0; z-index: 3; }
+.source-intake { margin-bottom: 0; }
+.new-document-form .full textarea { height: 68px; min-height: 68px; }
+.new-document-form .reference-band { padding: 10px 14px; }
+.document-fields label:has([data-assignment-department]) { grid-column: 1 / -1; }
+.assignment-fields { grid-template-columns: repeat(2,minmax(0,1fr)); column-gap: 20px; }
+.assignment-fields > .assignment-label:first-child { grid-column: 1; grid-row: 1; }
+.assignment-fields > [data-assignment-department] { grid-column: 1; grid-row: 2; }
+.assignment-fields > .assignment-label:nth-child(3) { grid-column: 2; grid-row: 1; margin-top: 0; }
+.assignment-fields > [name=assignedStaff] { grid-column: 2; grid-row: 2; }
+.assignment-fields > small { grid-column: 1 / -1; }
+@media(max-width:520px) {
+ .assignment-fields { grid-template-columns: 1fr; }
+ .assignment-fields > .assignment-label:first-child,
+ .assignment-fields > [data-assignment-department],
+ .assignment-fields > .assignment-label:nth-child(3),
+ .assignment-fields > [name=assignedStaff] { grid-column: auto; grid-row: auto; }
+}

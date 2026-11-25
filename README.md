@@ -8,10 +8,15 @@ flows, NCSC assets, routing-slip template and sample files are retained.
 ## Current application
 
 - Individual staff logins, department access and account management.
+- Departments sidebar folders with document counts; optional staff assignment
+  filtered by the selected department and validated by the host.
 - Adaptive Excel / CSV and document imports, including saved email intake.
 - Document viewing, editing, routing, requested actions, status and MOV files.
 - Excel / Word / PDF reports, readable print matrices and original-template slips.
-- Selected deletion, restoration and administrator-only permanent deletion.
+- Bulk source selection/deletion, filtered Select all, batch restoration and
+  administrator-only permanent deletion with confirmation and version checks.
+- Status choices: For routing, Received, Pending, Ongoing, Completed and
+  Other / specify; compact password/recovery forms and consistent field sizes.
 - SQLite database and supporting files stored together in a local `data` folder.
 
 The current interface opens in a browser served by Python on the host computer.
