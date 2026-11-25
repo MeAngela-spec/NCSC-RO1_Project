@@ -1,8 +1,11 @@
 """Real HTTP checks for department assignment and recoverable batch operations."""
 import io
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from desktop_runtime import HostService
 from self_check import Client
@@ -53,7 +56,7 @@ class DepartmentAndBatchTests(unittest.TestCase):
         staff = self.client("fixture.ops")
         self.assertEqual([d["code"] for d in staff.request("/api/departments")], ["OPS"])
         self.client("fixture.afs").request("/api/record/"+rid, expected=403)
-        for status in ["Received","Pending","Ongoing","Completed","Awaiting legal review"]:
+        for status in ["Received","Pending","Ongoing","Completed","For Comment","For Signature","Awaiting legal review"]:
             row = self.record(rid)
             staff.request("/api/save", {"id":rid,"version":row["version"],"cells":{**row["cells"],"Status":status,"Assigned to":"AFS"},"assigned_user_id":afs})
             row = self.record(rid)
@@ -71,6 +74,69 @@ class DepartmentAndBatchTests(unittest.TestCase):
         self.assertEqual(self.record(shared)["departments"], ["AFS","OPS"])
         staff.request("/api/record/"+shared)
         self.client("fixture.afs").request("/api/record/"+shared)
+
+    def test_memo_reference_sequence_collision_and_legacy_retention(self):
+        year = datetime.now().year
+        with self.app.connect() as connection:
+            connection.execute("INSERT OR REPLACE INTO reference_sequence VALUES(?,987654)", (year,))
+            prior = connection.execute("SELECT last FROM memo_reference_sequence WHERE year=?", (year,)).fetchone()
+            collision = (prior["last"] if prior else 0) + 1
+        imported_reference = f"RO1-MEMO-{year}-{collision:05d}"
+        legacy_reference = f"RO1-{year}-000001"
+        csv = ("Subject,Ref. No.,Assigned to\nFictional imported memo,"+imported_reference+",ORD\nFictional legacy record,"+legacy_reference+",OPS\n").encode()
+        preview = self.admin.request("/api/preview", {}, upload=("Fictional-reference-matrix.csv",csv))
+        imported = self.admin.request("/api/import", {"token":preview["token"],"datasets":[{"index":0,"mappings":preview["datasets"][0]["mappings"]}]})
+        def register(index):
+            client = self.client("fixture.admin")
+            rid = client.request("/api/new", {"cells":{"Subject":"Fictional concurrent memo "+str(index)}})["id"]
+            return client.request("/api/record/"+rid)["cells"]["Ref. No."]
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            references = list(pool.map(register, range(4)))
+        self.assertEqual(set(references), {f"RO1-MEMO-{year}-{collision+offset:05d}" for offset in range(1,5)})
+        self.app.init()
+        retained = [r["cells"]["Ref. No."] for r in self.admin.request("/api/register") if r["collection_id"] in imported["collections"]]
+        self.assertEqual(set(retained), {imported_reference,legacy_reference})
+        with patch.object(self.app,"datetime") as clock:
+            clock.now.return_value = datetime(2042,1,2,9,0)
+            rid = self.admin.request("/api/new", {"cells":{"Subject":"Fictional new-year memo"}})["id"]
+            self.assertEqual(self.record(rid)["cells"]["Ref. No."], "RO1-MEMO-2042-00001")
+        before = len(self.admin.request("/api/register"))
+        with self.app.connect() as connection:
+            connection.execute("INSERT OR REPLACE INTO memo_reference_sequence VALUES(2043,99999)")
+            collections_before = connection.execute("SELECT COUNT(*) FROM collections").fetchone()[0]
+        with patch.object(self.app,"datetime") as clock:
+            clock.now.return_value = datetime(2043,1,2,9,0)
+            self.admin.request("/api/new", {"cells":{"Subject":"Fictional exhausted sequence"}}, expected=400)
+        self.assertEqual(len(self.admin.request("/api/register")), before)
+        with self.app.connect() as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM collections").fetchone()[0], collections_before)
+            self.assertEqual(connection.execute("SELECT last FROM memo_reference_sequence WHERE year=2043").fetchone()[0], 99999)
+
+    def test_password_change_verifies_rotates_code_and_ends_other_sessions(self):
+        created = self.admin.request("/api/users", {"username":"fixture.password","name":"Fictional password test","department":"OPS","role":"staff","password":"fixture-password-123"})
+        saved_code = created["recovery_code"]
+        client = self.client("fixture.password")
+        other = self.client("fixture.password")
+        new_password = "new-fixture-password-456"
+        body = {"current":"fixture-password-123","password":new_password,"confirmation":new_password}
+        client.request("/api/password", body, expected=400)
+        client.request("/api/password", {**body,"code":"wrong-code"}, expected=400)
+        client.request("/api/password", {**body,"code":saved_code,"confirmation":"does-not-match"}, expected=400)
+        client.request("/api/password", {**body,"code":saved_code,"current":"wrong-current-password"}, expected=400)
+        self.assertIsNotNone(other.request("/api/me")["user"])
+        result = client.request("/api/password", {**body,"code":saved_code.lower()})
+        self.assertNotEqual(result["recovery_code"], saved_code)
+        self.assertIsNotNone(client.request("/api/me")["user"])
+        self.assertIsNone(other.request("/api/me")["user"])
+        client.request("/api/password", {**body,"current":new_password,"code":saved_code}, expected=400)
+        Client(self.service.local_url).request("/api/login", {"username":"fixture.password","password":"fixture-password-123"}, expected=401)
+        new_session = Client(self.service.local_url)
+        new_session.request("/api/login", {"username":"fixture.password","password":new_password})
+        client.request("/api/recover", {"username":"fixture.password","code":saved_code,"password":"reset-fixture-password"}, expected=400)
+        reset = client.request("/api/recover", {"username":"fixture.password","code":result["recovery_code"],"password":"reset-fixture-password"})
+        self.assertNotEqual(reset["recovery_code"], result["recovery_code"])
+        self.assertIsNone(client.request("/api/me")["user"])
+        Client(self.service.local_url).request("/api/login", {"username":"fixture.password","password":"reset-fixture-password"})
 
     def test_import_bulk_restore_and_purge_preserve_shared_files(self):
         import openpyxl

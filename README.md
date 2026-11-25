@@ -7,7 +7,9 @@ flows, NCSC assets, routing-slip template and sample files are retained.
 
 ## Current application
 
-- Individual staff logins, department access and account management.
+- Individual staff logins, department access and grouped account management.
+- Department dashboard summaries and six status counters with matching filters.
+- Sequential yearly references in the format `RO1-MEMO-YYYY-00001`.
 - Departments sidebar folders with document counts; optional staff assignment
   filtered by the selected department and validated by the host.
 - Adaptive Excel / CSV and document imports, including saved email intake.
@@ -15,8 +17,9 @@ flows, NCSC assets, routing-slip template and sample files are retained.
 - Excel / Word / PDF reports, readable print matrices and original-template slips.
 - Bulk source selection/deletion, filtered Select all, batch restoration and
   administrator-only permanent deletion with confirmation and version checks.
-- Status choices: For routing, Received, Pending, Ongoing, Completed and
-  Other / specify; compact password/recovery forms and consistent field sizes.
+- Status choices: For routing, Received, Pending, Ongoing, Completed, For Comment,
+  For Signature and Other / specify. Password changes verify the generated
+  recovery code and display a replacement code after success.
 - SQLite database and supporting files stored together in a local `data` folder.
 
 The current interface opens in a browser served by Python on the host computer.

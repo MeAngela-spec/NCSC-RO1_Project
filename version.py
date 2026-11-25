@@ -1,3 +1,3 @@
-APP_VERSION = "0.1.4"
+APP_VERSION = "0.1.5"
 PRODUCT = "NCSC RO1 Document Routing and Tracking"
 MUTEX_NAME = r"Local\NCSCRO1Desktop"

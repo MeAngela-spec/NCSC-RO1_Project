@@ -57,10 +57,12 @@ const opts = (values, selected = '') => values.map(item => {
 }).join('');
 const editor = () => ['admin', 'records'].includes(state.user?.role);
 const mapped = (r, key) => String(r.cells[r.mappings[key]] || '').trim();
-const statuses = ['For routing', 'Received', 'Pending', 'Ongoing', 'Completed'];
-const canonicalStatus = value => ({forrouting:'For routing',routed:'For routing',received:'Received',pending:'Pending',ongoing:'Ongoing',completed:'Completed'}[normalize(value)] || value || 'For routing');
+const statuses = ['For routing', 'Received', 'Pending', 'Ongoing', 'Completed', 'For Comment', 'For Signature'];
+const statusNames = {forrouting:'For routing',routed:'For routing',received:'Received',pending:'Pending',ongoing:'Ongoing',completed:'Completed',forcomment:'For Comment',forsignature:'For Signature'};
+const canonicalStatus = value => Object.hasOwn(statusNames,normalize(value)) ? statusNames[normalize(value)] : value || 'For routing';
 const statusOf = r => canonicalStatus(mapped(r, 'status'));
-const departmentName = code => state.departments.find(d=>d.code===code)?.name || departments[code] || code;
+const departmentName = code => code==='__unassigned__' ? 'Documents awaiting department assignment' : state.departments.find(d=>d.code===code)?.name || departments[code] || code;
+const inDepartment = (record,code) => !code || (code==='__unassigned__' ? !record.departments?.length : record.departments?.includes(code));
 const documentSelection = () => state.page==='deleted' ? state.deletedSelected : state.selected;
 const isSelecting = () => state.page==='deleted' ? state.deletedSelecting : state.selecting;
 const subjectOf = r => mapped(r, 'subject') || Object.values(r.cells).find(Boolean) || 'Untitled document';
@@ -179,7 +181,7 @@ function login(setup = false) {
 }
 function recoveryCodes(codes) {
   modal('Save your account recovery code', 'Store your recovery code securely.',
-    '<p class="notice">Your recovery code lets you reset your password offline. Each successful reset replaces the code. Keep a copy in a secure place.</p>' +
+    '<p class="notice">Your recovery code verifies password changes and lets you reset your password offline. Each successful change or reset replaces the code. Keep a copy in a secure place.</p>' +
     '<div class="recovery-grid">' + Object.entries(codes).map(([name, code]) =>
       '<div><label>' + esc(name) + '</label><div class="recovery-code">' + esc(code) + '</div></div>').join('') + '</div>',
     button('Download codes', 'downloadcodes', '', 'download') + button('Codes saved', 'close', 'primary'),'compact');
@@ -241,26 +243,30 @@ function pageHeading(title, subtitle, actionsMarkup = '') {
     '</h1><p>' + esc(subtitle) + '</p></div><div class="tools">' + actionsMarkup + '</div></div>';
 }
 function statsMarkup() {
-  const rows = state.page==='documents' && state.department ? state.rows.filter(r=>r.departments?.includes(state.department)) : state.rows;
+  const rows = state.page==='documents' && state.department ? state.rows.filter(r=>inDepartment(r,state.department)) : state.rows;
   const stats = [
     ['All documents', rows.length, 'file', '', ''],
     ['For routing', rows.filter(r => statusOf(r) === 'For routing').length, 'clock', 'orange', 'For routing'],
-    ['In progress', rows.filter(r => ['Received', 'Pending', 'Ongoing'].includes(statusOf(r))).length, 'refresh', '', 'active'],
-    ['Completed', rows.filter(r => statusOf(r) === 'Completed').length, 'check', 'green', 'Completed']
+    ['Pending', rows.filter(r => statusOf(r) === 'Pending').length, 'clock', 'orange', 'Pending'],
+    ['Completed', rows.filter(r => statusOf(r) === 'Completed').length, 'check', 'green', 'Completed'],
+    ['For Comment', rows.filter(r => statusOf(r) === 'For Comment').length, 'file', '', 'For Comment'],
+    ['For Signature', rows.filter(r => statusOf(r) === 'For Signature').length, 'edit', 'red', 'For Signature']
   ];
   return '<section class="stats" aria-label="Document summary">' + stats.map(([label, count, symbol, color, filter]) =>
     '<button class="stat ' + (filter && state.status === filter ? 'active' : '') + '" data-status="' + filter + '">' +
     '<span><span class="label">' + label + '</span><strong>' + count + '</strong></span><span class="stat-icon ' + color + '">' + icon(symbol) + '</span></button>').join('') + '</section>';
 }
 function renderDashboard() {
-  $('content').innerHTML = pageHeading('Dashboard', departments[state.user.department] || state.user.name,
+  const summaries=state.departments.map(d=>({code:d.code,name:d.name,count:state.rows.filter(r=>inDepartment(r,d.code)).length}));
+  const unassigned=state.rows.filter(r=>!r.departments?.length).length;
+  if (unassigned) summaries.push({code:'__unassigned__',name:'Awaiting department assignment',count:unassigned});
+  $('content').innerHTML = pageHeading('Dashboard', departmentName(state.user.department),
     editor() ? button('New document', 'new', '', 'plus') + button('Import file', 'import', 'primary', 'upload') : button('Refresh', 'refresh', '', 'refresh')) +
-    statsMarkup() + '<section class="card"><div class="card-head"><div><h2>Recent documents</h2><small>The latest correspondence in your workspace.</small></div>' +
+    statsMarkup() + '<section class="card"><div class="card-head"><div><h2>Department summary</h2><small>Open a department to view its documents.</small></div>' +
     button('View register', 'register', 'link') + '</div>' +
-    (state.rows.length ? '<div class="recent-list">' + state.rows.slice(0, 8).map(r =>
-      '<button class="recent-item" data-record="' + r.id + '"><span class="stat-icon">' + icon('file') + '</span><span><strong>' +
-      esc(subjectOf(r)) + '</strong><small>' + esc(refOf(r)) + ' · ' + esc(mapped(r, 'assigned') || 'Awaiting assignment') +
-      '</small></span>' + pill(statusOf(r)) + '</button>').join('') + '</div>' : emptyMarkup()) + '</section>';
+    '<div class="department-summary-grid">'+summaries.map(d=>'<button type="button" class="department-summary" data-department="'+esc(d.code)+'" aria-label="'+esc(d.code==='__unassigned__'?'Unassigned documents':d.code+' Documents')+' — '+d.count+'">'+
+      '<span class="stat-icon">'+icon('folder')+'</span><span class="department-summary-copy"><strong>'+esc(d.code==='__unassigned__'?'Unassigned documents':d.code+' Documents')+'</strong><small>'+esc(d.name)+'</small></span><span class="department-total">'+d.count+'</span>'+icon('chevron')+'</button>').join('')+'</div>'+
+    '<p class="department-summary-note">Counts include accessible active documents. A document assigned to multiple departments appears in each matching department.</p></section>';
 }
 function emptyMarkup(deleted = false) {
   return '<div class="empty"><div class="empty-icon">' + icon(deleted ? 'trash' : 'folder') + '</div><h2>' +
@@ -274,7 +280,7 @@ function filteredRows() {
   const rows = state.page === 'deleted' ? state.deleted : state.rows;
   const query = state.query.toLowerCase();
   return rows.filter(r => (!state.collection || r.collection_id === state.collection) &&
-    (!state.department || r.departments?.includes(state.department)) &&
+    inDepartment(r,state.department) &&
     (!query || [...Object.values(r.cells),r.source?.filename,r.source?.sender].some(v => String(v || '').toLowerCase().includes(query))) &&
     (!state.status || (state.status === 'active' ? ['Received', 'Pending', 'Ongoing'].includes(statusOf(r)) : state.status==='__other__' ? !statuses.includes(statusOf(r)) : statusOf(r) === state.status)));
 }
@@ -291,9 +297,9 @@ function shownColumns() {
 }
 function renderDocuments() {
   const deleted = state.page === 'deleted';
-  const relevantIds=new Set((deleted?state.deleted:state.rows).filter(r=>!state.department||r.departments?.includes(state.department)).map(r=>r.collection_id));
+  const relevantIds=new Set((deleted?state.deleted:state.rows).filter(r=>inDepartment(r,state.department)).map(r=>r.collection_id));
   const worksheets=state.collections.filter(c=>relevantIds.has(c.id));
-  const title = deleted ? 'Deleted documents' : state.department ? state.department+' documents' : editor() ? 'Document register' : 'Assigned documents';
+  const title = deleted ? 'Deleted documents' : state.department==='__unassigned__' ? 'Unassigned documents' : state.department ? state.department+' documents' : editor() ? 'Document register' : 'Assigned documents';
   const actionsMarkup = deleted ? '' : editor() ?
     button('New document', 'new', '', 'plus') + button('Import file', 'import', 'primary', 'upload') :
     button('Refresh', 'refresh', '', 'refresh');
@@ -729,7 +735,7 @@ function newDocument() {
   const collection = state.collections.find(c => c.id === state.collection);
   const mappings = collection?.mappings || {hard:'Hard Copy Routed', reference:'Ref. No.', subject:'Subject', assigned:'Assigned to', action:'Requested Actions', status:'Status'};
   if (!mappings.subject) { toast('Map the Subject column in Worksheet settings before adding a document.'); return; }
-  state.newDraft = {collection, mappings, baseColumns:[...(collection?.columns || standard)], columns:[...(collection?.columns || standard)], cells:{[mappings.status]:'For routing',[mappings.assigned]:state.department}, assigned_user_id:null, source:null, sourceRow:0, auto:{}};
+  state.newDraft = {collection, mappings, baseColumns:[...(collection?.columns || standard)], columns:[...(collection?.columns || standard)], cells:{[mappings.status]:'For routing',[mappings.assigned]:state.department==='__unassigned__'?'':state.department}, assigned_user_id:null, source:null, sourceRow:0, auto:{}};
   renderNewDocument();
 }
 function captureNewDocument() {
@@ -935,26 +941,51 @@ function exportDialog(selectedOnly = false) {
 /* Department administration */
 let accounts = [];
 let accountScope = 'current';
+let accountDepartment = '', accountQuery = '';
+const expandedAccountDepartments = new Set();
 async function renderAccounts() {
   accounts = await api('/api/users');
+  if (state.page!=='accounts') return;
+  if (!expandedAccountDepartments.size) expandedAccountDepartments.add(state.user.department);
   const archived = accountScope === 'archived';
-  const visible = accounts.filter(account=>Boolean(account.archived_at)===archived);
   const currentCount = accounts.filter(account=>!account.archived_at).length;
+  const codes=[...new Set([...state.departments.map(d=>d.code),...accounts.map(u=>u.department)])];
+  if (accountDepartment && !codes.includes(accountDepartment)) accountDepartment='';
   $('content').innerHTML = pageHeading('Account management', 'Manage individual staff accounts, department membership, and access.',
     button('Add staff account', 'addaccount', 'primary', 'plus')) +
     '<section class="card"><div class="card-head"><div><h2>Office accounts</h2><small>Archive staff accounts to remove access while preserving document history.</small></div></div>' +
     '<div class="account-scopes" role="group" aria-label="Account list"><button type="button" data-account-scope="current" aria-pressed="'+!archived+'">Current accounts <span>'+currentCount+'</span></button>' +
     '<button type="button" data-account-scope="archived" aria-pressed="'+archived+'">Archived accounts <span>'+(accounts.length-currentCount)+'</span></button></div>' +
-    '<div class="table-wrap"><table class="accounts-table"><thead><tr><th>Username</th><th>Name / department</th><th>Access / status</th><th>Actions</th></tr></thead><tbody>' +
-    (visible.map(u => '<tr><td><strong class="ref">' + esc(u.username) + '</strong>'+(u.id===state.user.id?'<small class="account-you">Your account</small>':'')+'</td><td>' + esc(u.name) + '<small class="account-detail">' + esc(u.department) + ' · ' + esc(u.account_type) + '</small></td><td>' +
+    '<div class="filters"><label class="search">'+icon('search')+'<input type="search" id="accountSearch" aria-label="Search accounts" placeholder="Search name or username…" value="'+esc(accountQuery)+'"></label>'+
+    '<select id="accountDepartmentFilter" aria-label="Filter accounts by department">'+opts([['','All departments'],...codes.map(code=>[code,code+' — '+departmentName(code)])],accountDepartment)+'</select></div>'+
+    '<div id="accountGroups"></div></section><p class="account-note">Archived accounts cannot sign in. Their past activity and assignments remain identifiable. Restored accounts stay disabled until an administrator enables them. Keep at least one active administrator.</p>';
+  drawAccountGroups();
+  $('accountSearch').oninput=e=>{accountQuery=e.target.value;drawAccountGroups();};
+  $('accountDepartmentFilter').onchange=e=>{accountDepartment=e.target.value;drawAccountGroups();};
+}
+function accountRows(rows,archived) {
+  return rows.map(u => '<tr><td><strong class="ref">' + esc(u.username) + '</strong>'+(u.id===state.user.id?'<small class="account-you">Your account</small>':'')+'</td><td>' + esc(u.name) + '<small class="account-detail">' + esc(u.department) + ' · ' + esc(u.account_type) + '</small></td><td>' +
       esc(u.role === 'admin' ? 'ORD administration' : u.role === 'staff' ? 'Assigned documents' : u.role === 'records' ? 'Records administration' : 'Read only') +
       '<small class="account-detail">' + (archived ? 'Archived · '+esc(formatDate(u.archived_at)) : u.active ? 'Active' : 'Disabled') + '</small></td><td><div class="account-actions">'+
       (archived ? '<button class="btn view-button" data-restore-account="'+u.id+'">Restore account</button>' :
       '<button class="btn view-button" data-edit-account="' + u.id + '">Edit</button><button class="btn" data-recovery="' + u.id + '">Recovery code</button>'+
-      (u.id!==state.user.id?'<button class="btn danger" data-archive-account="'+u.id+'">Archive</button>':''))+'</div></td></tr>').join('') ||
-      '<tr><td colspan="4"><div class="empty"><h2>No archived accounts</h2><p>Accounts archived by an administrator will appear here.</p></div></td></tr>') +
-    '</tbody></table></div></section><p class="account-note">Archived accounts cannot sign in. Their past activity and assignments remain identifiable. Restored accounts stay disabled until an administrator enables them. Keep at least one active administrator.</p>';
+      (u.id!==state.user.id?'<button class="btn danger" data-archive-account="'+u.id+'">Archive</button>':''))+'</div></td></tr>').join('');
 }
+function drawAccountGroups() {
+  const archived=accountScope==='archived', query=accountQuery.trim().toLowerCase();
+  const visible=accounts.filter(u=>Boolean(u.archived_at)===archived);
+  const codes=[...new Set([...state.departments.map(d=>d.code),...accounts.map(u=>u.department)])].filter(code=>!accountDepartment||code===accountDepartment);
+  const groups=codes.map(code=>({code,rows:visible.filter(u=>u.department===code&&(!query||[u.name,u.username,u.department].some(v=>String(v).toLowerCase().includes(query))))})).filter(g=>!query||g.rows.length);
+  $('accountGroups').innerHTML=groups.map(({code,rows})=>'<details class="account-department" data-account-group="'+esc(code)+'" '+(query||accountDepartment||expandedAccountDepartments.has(code)?'open':'')+'><summary>'+icon('users')+
+    '<span class="account-department-title"><strong>'+esc(code)+' accounts</strong><small>'+esc(departmentName(code))+'</small></span><span class="account-group-count">'+rows.length+' '+(rows.length===1?'account':'accounts')+'</span><span class="nav-chevron">'+icon('chevron')+'</span></summary>'+
+    (rows.length?'<div class="table-wrap"><table class="accounts-table"><caption class="visually-hidden">'+esc(code)+' '+(archived?'archived':'current')+' accounts</caption><thead><tr><th>Username</th><th>Name / department</th><th>Access / status</th><th>Actions</th></tr></thead><tbody>'+accountRows(rows,archived)+'</tbody></table></div>':'<div class="account-group-empty">No '+(archived?'archived':'current')+' accounts in this department.</div>')+
+    (!archived?'<div class="account-group-footer"><button type="button" class="btn link" data-add-account-department="'+esc(code)+'">'+icon('plus')+'Add '+esc(code)+' staff account</button></div>':'')+'</details>').join('') || '<div class="empty"><h2>No matching accounts</h2><p>Try another name, username or department.</p></div>';
+}
+document.addEventListener('toggle',e=>{
+  const code=e.target.dataset?.accountGroup;
+  if (!code || accountQuery || accountDepartment) return;
+  if (e.target.open) expandedAccountDepartments.add(code);else expandedAccountDepartments.delete(code);
+},true);
 function archiveAccount(id) {
   const account = accounts.find(u=>u.id===Number(id));
   modal('Archive staff account?', account.username,
@@ -973,11 +1004,11 @@ async function restoreAccount(id) {
   await api('/api/account-restore',{id:Number(id)});
   accountScope='current';await renderAccounts();toast('Account restored as disabled. Choose Edit to review and enable access.');
 }
-function addAccount() {
+function addAccount(department = accountDepartment || state.user.department) {
   modal('Add staff account', 'Create a personal login and assign its department and access.',
     '<form id="accountForm" class="grid"><label>Username<input name="username" required placeholder="e.g. maria.santos"></label>' +
     '<label>Staff full name<input name="name" required placeholder="Full name"></label>' +
-    '<label>Department code<input name="department" required list="departmentCodes" placeholder="ORD, AFS, OPS"><datalist id="departmentCodes"><option>ORD</option><option>AFS</option><option>OPS</option></datalist></label>' +
+    '<label>Department code<input name="department" required value="'+esc(department)+'" list="departmentCodes" placeholder="ORD, AFS, OPS"><datalist id="departmentCodes">'+state.departments.map(d=>'<option value="'+esc(d.code)+'"></option>').join('')+'</datalist></label>' +
     '<label>Access<select name="role">' + opts([['staff','Department staff'], ['records','Records officer'], ['viewer','Office reviewer (read all)'], ['admin','Administrator']]) + '</select></label>' +
     '<div class="full">' + passwordInput('password', 'Initial password', 'new-password') + '</div></form>',
     button('Cancel', 'close') + '<button form="accountForm" class="btn primary">Create staff account</button>','medium');
@@ -1021,14 +1052,19 @@ function requestRecovery(id) {
 function changePassword() {
   modal('Change your password', state.user.username,
     '<form id="passwordForm" class="stack">' + passwordInput('current', 'Current password') +
-    passwordInput('password', 'New password', 'new-password') + '</form>',
+    '<label>Generated recovery code<input class="recovery-input" name="code" required autocomplete="off" spellcheck="false" autocapitalize="characters" aria-describedby="passwordCodeHelp" placeholder="XXXXXX-XXXXXX-XXXXXX-XXXXXX"></label>'+
+    '<p id="passwordCodeHelp" class="muted">Use the code saved when your account was created. If lost, request a replacement from the administrator.</p>'+
+    passwordInput('password', 'New password', 'new-password') + passwordInput('confirmation', 'Confirm new password', 'new-password') + '</form>',
     button('Cancel', 'close') + '<button form="passwordForm" class="btn primary">Save password</button>','compact');
   $('passwordForm').onsubmit = async e => {
-    e.preventDefault();
+    e.preventDefault();e.submitter.disabled=true;
     try {
-      await api('/api/password', Object.fromEntries(new FormData(e.target)));
-      $('dialog').close(); toast('Password updated.');
-    } catch (err) { showError(err); }
+      const body=Object.fromEntries(new FormData(e.target));
+      if (body.password!==body.confirmation) throw Error('The new password and confirmation do not match.');
+      const result=await api('/api/password', body);
+      recoveryCodes({[state.user.username]:result.recovery_code});
+      toast('Password updated. Save your replacement recovery code; the previous code has expired.');
+    } catch (err) { showError(err);e.submitter.disabled=false; }
   };
 }
 function guide() {
@@ -1037,7 +1073,7 @@ function guide() {
     '<li><strong>Start from an email or file.</strong> New document &gt; Import email or file fills available details from a saved EML/MSG, PDF, Word document, Excel/CSV or another source. Review the subject and routing before registering. Emails retain their message and attachments; Excel/CSV lets you choose one source row.</li>' +
     '<li><strong>Review and route.</strong> In Document register, choose View to read a record or Edit to update it. Check its subject and reference number, choose a department, optionally select one of its staff, choose the requested action, then save. Expand Departments to view each department’s documents.</li>' +
     '<li><strong>The department acts.</strong> Each staff member logs in with their own username, opens Assigned documents, records its Action Taken using NCSC actions 1–9 or Other / specify, and adds MOV files or links.</li>' +
-    '<li><strong>Settings.</strong> Expand Settings in the sidebar for account management, change password, Quick guide, and Deleted documents. Account management is available to administrators.</li>' +
+    '<li><strong>Dashboard and accounts.</strong> Department summary opens each department’s documents. The six cards filter saved statuses, including For Comment and For Signature. Account management groups current and archived accounts by department, with search and department filtering.</li><li><strong>Change password.</strong> In Settings, enter your current password, generated recovery code, new password and confirmation. Save the replacement code displayed after success. If you lost your code, request a replacement from the administrator. Other sessions for your account will end.</li>' +
     '<li><strong>Update and print.</strong> Save the status. Print slip automatically opens the browser print dialog using the supplied Word template. Use Select documents and click rows to print different documents on a shared NCSC routing sheet. The host needs Microsoft Word or LibreOffice.</li>' +
     '<li><strong>Delete and restore.</strong> Records officers can move individual or selected documents to Deleted documents. Restore returns them with their files and history. Use Select documents and Select all shown in Deleted documents to restore a batch. Only administrators can delete permanently; a confirmation is required. Imported files also supports Select files and Select all; deleting a source moves its active rows to Deleted documents.</li>' +
     '<li><strong>Retire staff access.</strong> Administrators can Archive an account in Account management. The account loses access while its past activity remains identifiable. Restore from Archived accounts, then Edit to enable it.</li>' +
@@ -1108,6 +1144,7 @@ document.addEventListener('click', async e => {
     }
     if (target.dataset.map) return mappingDialog(target.dataset.map);
     if (target.dataset.editAccount) return editAccount(target.dataset.editAccount);
+    if (target.dataset.addAccountDepartment) return addAccount(target.dataset.addAccountDepartment);
     if (target.dataset.accountScope) {accountScope=target.dataset.accountScope;return await renderAccounts();}
     if (target.dataset.archiveAccount) return archiveAccount(target.dataset.archiveAccount);
     if (target.dataset.restoreAccount) return await restoreAccount(target.dataset.restoreAccount);
@@ -1133,11 +1170,12 @@ document.addEventListener('click', async e => {
       case 'logout':
         await api('/api/logout', {}); state.selected.clear(); state.selecting=false; state.collection = ''; state.page = 'dashboard'; state.settingsOpen = false;
         state.department='';state.departmentsOpen=false;state.deletedSelected.clear();state.importSelected.clear();state.deletedSelecting=false;state.importSelecting=false;
+        accountScope='current';accountDepartment='';accountQuery='';expandedAccountDepartments.clear();
         $('dialog').close(); await start(); break;
       case 'forgot': forgotPassword(); break;
       case 'downloadcodes': {
         const codes = JSON.parse($('dialog').dataset.codes);
-        downloadText('NCSC-RO1-Recovery-Codes.txt', 'NCSC RO1 department recovery codes\nKeep these codes secure.\n\n' +
+        downloadText('NCSC-RO1-Recovery-Codes.txt', 'NCSC RO1 account recovery codes\nKeep these codes secure.\n\n' +
           Object.entries(codes).map(([name, code]) => name + '\n' + code).join('\n\n'));
         break;
       }

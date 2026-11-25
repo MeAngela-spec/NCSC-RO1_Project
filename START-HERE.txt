@@ -124,7 +124,7 @@ Responsible staff entry is needed. Assignment uses department codes such
 as AFS, OPS, ORD or AFS / OPS.
 
 REFERENCE NUMBERS AND ACTIONS
-Ref. No. is automatic for new records, for example RO1-2026-000001.
+Ref. No. is automatic for new records, for example RO1-MEMO-2026-00001.
 There is no editable Ref. No. textbox. Existing nonempty imported references
 remain unchanged; missing references are generated on import.
 
@@ -421,7 +421,8 @@ New document and Edit document offer Department first, then Specific staff
 assigned. View document, the register and activity history identify the staff
 assignment. The host validates membership; department access remains unchanged.
 
-Statuses: For routing, Received, Pending, Ongoing, Completed, Other / specify.
+Statuses: For routing, Received, Pending, Ongoing, Completed, For Comment,
+For Signature, Other / specify.
 Custom status text is retained; use Other statuses in the register filter.
 Legacy Routed / For Routing values display as For routing without rewriting
 original imported cells until a document is saved. Routing history is retained.
@@ -442,3 +443,35 @@ permanently deleted. Permanent deletion cannot be undone.
 Password and recovery dialogs use compact widths. Account forms use medium
 widths; document details, import previews and file viewers keep room for their
 content. Everything above works on the existing offline office host.
+
+DASHBOARD, MEMO REFERENCES AND PASSWORD VERIFICATION (VERSION 0.1.5)
+The dashboard shows department document totals instead of recent documents.
+Open a department card to see its accessible active documents. Unassigned
+documents have their own card when present. Multi-department documents count
+in each matching department. Deleted documents are excluded.
+
+The six summary cards are All documents, For routing, Pending, Completed,
+For Comment and For Signature. Pending counts only the saved Pending status;
+Received and Ongoing remain available in the status dropdown and register.
+For Comment and For Signature are also available as status choices.
+
+New reference format: RO1-MEMO-YYYY-00001 (for example RO1-MEMO-2026-00001).
+The host allocates the five-digit suffix sequentially for each year and skips
+references already retained from imports. Concurrent registrations cannot
+receive the same generated reference. Existing references are not renumbered.
+The new MEMO sequence is separate from the legacy numbering counter. It starts
+at 00001 for a new year and stops with a clear error if all 99,999 slots are used.
+
+Account management separates accounts into expandable department groups. Use
+search and the department filter with either Current accounts or Archived
+accounts. Add staff from a department group to prefill its department code.
+Edit, recovery code, Archive and Restore actions keep their existing permissions.
+
+Change password requires your current password, generated recovery code, new
+password and confirmation. Use the recovery code saved at account creation,
+a previous successful password change/reset, or replacement issued by the
+administrator in Account management. The system cannot display an old saved
+code because only its hash is stored. A successful change displays a fresh
+recovery code; save it before closing. The previous code expires and other
+sessions for the account end. The verified current session remains signed in.
+Forgot password on the login page still uses the saved recovery code offline.

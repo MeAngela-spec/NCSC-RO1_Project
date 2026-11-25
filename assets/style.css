@@ -573,3 +573,37 @@ dialog footer { position: sticky; bottom: 0; z-index: 3; }
  .assignment-fields > .assignment-label:nth-child(3),
  .assignment-fields > [name=assignedStaff] { grid-column: auto; grid-row: auto; }
 }
+
+/* Department summaries and grouped account administration. */
+.stats { grid-template-columns: repeat(6,minmax(0,1fr)); }
+.stat .label { line-height: 1.5; }
+.department-summary-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; padding: 20px; }
+.department-summary { display: flex; align-items: center; gap: 13px; min-width: 0; padding: 20px 16px; color: #243451; text-align: left; background: #fbfcff; border: 1px solid #e0e6f1; border-radius: 9px; }
+.department-summary:hover { border-color: #a9bce3; background: #f1f5ff; box-shadow: 0 3px 10px #12326d08; }
+.department-summary-copy { flex: 1; min-width: 0; }
+.department-summary-copy strong { display: block; font-size: 15px; color: #253c78; }
+.department-summary-copy small { display: block; margin-top: 5px; color: #6b778e; font-size: 12px; line-height: 1.5; }
+.department-total { color: #243e96; font-size: 28px; line-height: 1; font-weight: 700; }
+.department-summary > svg { color: #7888a8; width: 16px; height: 16px; }
+.department-summary-note { padding: 0 20px 20px; color: #6b778e; font-size: 12px; line-height: 1.6; }
+.account-department { border-top: 1px solid var(--line); }
+.account-department > summary { display: flex; align-items: center; gap: 12px; padding: 18px 20px; list-style: none; background: #fbfcff; color: #253d7e; }
+.account-department > summary::-webkit-details-marker { display: none; }
+.account-department > summary:hover { background: #f1f5ff; }
+.account-department-title { flex: 1; min-width: 0; }
+.account-department-title strong { display: block; font-size: 14px; }
+.account-department-title small { display: block; margin-top: 3px; color: #6d7890; font-size: 12px; }
+.account-group-count { white-space: nowrap; font-size: 12px; font-weight: 600; color: #496291; background: #eaf0fc; padding: 4px 9px; border-radius: 5px; }
+.account-department .nav-chevron { margin-left: 5px; }
+.account-department[open] > summary .nav-chevron { transform: rotate(90deg); }
+.account-group-empty { padding: 24px 20px; color: #718098; font-size: 14px; }
+.account-group-footer { padding: 12px 20px; background: #fafbfe; border-top: 1px solid #edf0f6; }
+.account-department .table-wrap { max-height: 48vh; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.recovery-input { font-family: ui-monospace,Consolas,monospace; text-transform: uppercase; font-size: 13px; letter-spacing: .025em; }
+#passwordCodeHelp { margin-top: -8px; }
+.pill.forcomment { background: #edf2ff; color: #3d59a0; }
+.pill.forsignature { background: #fff0f2; color: #9f2940; }
+@media(max-width:1200px) { .stats { grid-template-columns: repeat(3,minmax(0,1fr)); } .department-summary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:620px) { .department-summary-grid { grid-template-columns: 1fr; padding: 14px; } .department-summary-note { padding: 0 14px 14px; } .account-department > summary { padding: 14px; gap: 8px; } .account-department-title small { max-width: 180px; } }
+@media(max-width:520px) { .stats { grid-template-columns: repeat(2,minmax(0,1fr)); } }

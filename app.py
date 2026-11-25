@@ -118,6 +118,7 @@ def init():
             c.execute("UPDATE files SET slot=2 WHERE UPPER(kind) LIKE '%MOV%2%'")
         c.executescript("""
             CREATE TABLE IF NOT EXISTS reference_sequence(year INTEGER PRIMARY KEY,last INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS memo_reference_sequence(year INTEGER PRIMARY KEY,last INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS app_metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
         """)
         c.execute("""CREATE INDEX IF NOT EXISTS record_reference_index ON records(json_extract(cells, '$."Ref. No."'))""")
@@ -299,8 +300,10 @@ def normalize_table(columns, values, mappings=None):
 def next_reference(c):
     year = datetime.now().year
     while True:
-        row = c.execute("INSERT INTO reference_sequence(year,last) VALUES(?,1) ON CONFLICT(year) DO UPDATE SET last=last+1 RETURNING last", (year,)).fetchone()
-        reference = f"RO1-{year}-{row['last']:06d}"
+        row = c.execute("INSERT INTO memo_reference_sequence(year,last) VALUES(?,1) ON CONFLICT(year) DO UPDATE SET last=last+1 RETURNING last", (year,)).fetchone()
+        if row["last"] > 99999:
+            raise ValueError("The five-digit memorandum reference sequence is full for this year. Contact the administrator.")
+        reference = f"RO1-MEMO-{year}-{row['last']:05d}"
         exists = c.execute("""SELECT 1 FROM records WHERE json_extract(cells, '$."Ref. No."')=? LIMIT 1""", (reference,)).fetchone()
         if not exists:
             return reference
@@ -584,7 +587,8 @@ def assignment_staff(c, body, departments, previous=None):
 def canonical_status(value):
     value = str(value).strip()
     choices = {"forrouting":"For routing", "routed":"For routing", "received":"Received",
-               "pending":"Pending", "ongoing":"Ongoing", "completed":"Completed"}
+               "pending":"Pending", "ongoing":"Ongoing", "completed":"Completed",
+               "forcomment":"For Comment", "forsignature":"For Signature"}
     return choices.get(norm(value), value or "For routing")
 
 def batch_records(c, user, items, deleted):
@@ -1586,12 +1590,25 @@ class Handler(BaseHTTPRequestHandler):
                            body["role"], body["department"].strip().upper(), password_hash(code)))
                 self.respond(200, {"ok": True, "recovery_code": code})
             elif path == "/api/password":
-                if not password_ok(body.get("current", ""), c.execute("SELECT password FROM users WHERE id=?", (user["id"],)).fetchone()[0]):
+                credentials = c.execute("SELECT password,recovery FROM users WHERE id=?", (user["id"],)).fetchone()
+                if not password_ok(body.get("current", ""), credentials["password"]):
                     raise ValueError("Current password is incorrect.")
+                code = str(body.get("code", "")).strip().upper()
+                if not code or not credentials["recovery"] or not password_ok(code, credentials["recovery"]):
+                    raise ValueError("Enter your valid generated recovery code. If you lost it, request a replacement from the administrator.")
                 if len(body.get("password", "")) < 8:
                     raise ValueError("Use at least 8 characters.")
-                c.execute("UPDATE users SET password=? WHERE id=?", (password_hash(body["password"]), user["id"]))
-                self.respond(200, {"ok": True})
+                if body.get("confirmation") != body["password"]:
+                    raise ValueError("The new password and confirmation do not match.")
+                new_code = recovery_code()
+                c.execute("UPDATE users SET password=?,recovery=? WHERE id=?",
+                          (password_hash(body["password"]), password_hash(new_code), user["id"]))
+                administration_event(c, user, "Password changed with recovery-code verification", {"account_id":user["id"]})
+                # Keep this verified session; other sessions must use the new password.
+                for token, other in list(SESSIONS.items()):
+                    if other["user"] == user["id"] and other is not session:
+                        SESSIONS.pop(token, None)
+                self.respond(200, {"ok": True,"recovery_code":new_code})
             else:
                 self.respond(404, {"error": "Not found."})
 
