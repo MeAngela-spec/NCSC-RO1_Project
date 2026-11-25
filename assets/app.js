@@ -30,6 +30,7 @@ const shapes = {
   download:'<path d="M12 3v13m-4-4 4 4 4-4M4 16v5h16v-5"/>',
   trash:'<path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/>',
   users:'<circle cx="9" cy="8" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2m1-17a3 3 0 0 1 0 6m3 11v-2a6 6 0 0 0-3-5"/>',
+  user:'<circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2Z"/>',
   clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   check:'<path d="m5 12 4 4 10-10"/>',
   search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
@@ -40,6 +41,7 @@ const shapes = {
   logout:'<path d="M9 3H4v18h5m0-9h12m-4-4 4 4-4 4"/>',
   lock:'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v2"/>',
   eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff:'<path d="m3 3 18 18M10.6 5.1 12 5c6 0 10 7 10 7a20 20 0 0 1-3.2 3.7M6.1 6.1C3.5 8.2 2 12 2 12s4 7 10 7a11 11 0 0 0 5.9-1.9M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
   close:'<path d="m6 6 12 12M6 18 18 6"/>',
   folder:'<path d="M3 6h7l2 3h9v12H3z"/>',
   edit:'<path d="m14 5 5 5M4 20l5-1L21 7l-5-5L4 14v6Z"/>'
@@ -115,10 +117,13 @@ async function start() {
 }
 
 /* Department login and offline recovery */
-function passwordInput(name, label, autocomplete = 'current-password') {
-  return '<label>' + label + '<span class="password-wrap"><input type="password" name="' + name +
-    '" required minlength="8" autocomplete="' + autocomplete + '">' +
-    '<button type="button" data-reveal="' + name + '" aria-label="Show ' + label.toLowerCase() + '">' + icon('eye') +
+function passwordInput(name, label, autocomplete = 'current-password', loginField = false) {
+  return '<label' + (loginField ? ' class="login-field"' : '') + '>' +
+    (loginField ? '<span class="login-label">' + label + '</span>' : label) +
+    '<span class="password-wrap">' + (loginField ? '<span class="login-input-icon">' + icon('lock') + '</span>' : '') +
+    '<input type="password" name="' + name + '"' + (loginField ? ' placeholder="Enter your password"' : '') +
+    ' required minlength="8" autocomplete="' + autocomplete + '">' +
+    '<button type="button" data-reveal="' + name + '" aria-pressed="false" aria-label="Show ' + label.toLowerCase() + '">' + icon('eye') +
     '</button></span></label>';
 }
 function login(setup = false) {
@@ -127,23 +132,24 @@ function login(setup = false) {
       '<label>Your username<input name="username" required autocomplete="username" placeholder="e.g. maria.santos"></label>' +
       passwordInput('password', 'Password', 'new-password') +
       '<div class="error" id="loginError" role="alert" hidden></div><button class="btn primary login-submit">Create administrator account</button></form>'
-    : '<form id="loginForm" class="stack"><label>Username<input name="username" placeholder="Enter your username" required autocomplete="username" spellcheck="false" autocapitalize="none"></label>' +
-      passwordInput('password', 'Password') +
+    : '<form id="loginForm" class="stack"><label class="login-field"><span class="login-label">Username</span>' +
+      '<span class="login-input-wrap"><span class="login-input-icon">' + icon('user') + '</span>' +
+      '<input name="username" placeholder="Enter your username" required autocomplete="username" spellcheck="false" autocapitalize="none"></span></label>' +
+      passwordInput('password', 'Password', 'current-password', true) +
       '<div class="login-links"><button type="button" class="btn link" data-action="forgot">Forgot password?</button></div>' +
       '<div class="error" id="loginError" role="alert" hidden></div><button class="btn primary login-submit">Log in</button></form>';
-  $('app').innerHTML = '<div class="login"><header class="login-header"><div class="login-brand">' +
+  $('app').innerHTML = '<main class="login"><div class="login-shell"><section class="login-story" aria-labelledby="loginTitle">' +
+    '<header class="login-header"><div class="login-brand">' +
     '<span class="login-seal"><img src="/assets/ncsc-official-logo.jpg" alt="National Commission of Senior Citizens seal" width="1995" height="1995"></span>' +
     '<div class="login-agency"><span>Republic of the Philippines</span>' +
-    '<strong>NATIONAL COMMISSION OF SENIOR CITIZENS</strong></div></div>' +
+    '<strong>NATIONAL COMMISSION<br>OF SENIOR CITIZENS</strong></div></div>' +
     '<div class="login-office">Regional Office I</div></header>' +
-    '<main class="login-stage"><article class="login-glass" aria-label="NCSC RO1 workspace access">' +
-    '<section class="login-identity" aria-labelledby="loginTitle">' +
-    '<span class="login-seal login-watermark" aria-hidden="true"><img src="/assets/ncsc-official-logo.jpg" alt="" width="1995" height="1995"></span>' +
-    '<h1 id="loginTitle"><span>Document Routing</span><span>&amp;</span><span>Tracking System</span></h1></section>' +
+    '<div class="login-title-block"><h1 id="loginTitle"><span>Document Routing &amp;</span>' +
+    '<span class="login-title-highlight">Tracking System</span></h1><p class="login-tagline">Track. Route. Manage.</p></div></section>' +
     '<section class="login-panel" aria-labelledby="loginHeading">' +
     '<h2 id="loginHeading">' + (setup ? 'Set up your workspace' : 'Welcome back') + '</h2><p class="intro">' +
-    (setup ? 'Create your administrator account under ORD to get started.' : 'Log in to your workspace') +
-    '</p>' + form + '<p class="login-foot">For authorized NCSC personnel only</p></section></article></main></div>';
+    (setup ? 'Create your administrator account under ORD to get started.' : 'Log in to your NCSC RO1 workspace.') +
+    '</p>' + form + '<p class="login-foot">For authorized NCSC personnel only</p></section></div></main>';
   $('loginForm').onsubmit = async e => {
     e.preventDefault();
     e.submitter.disabled = true;
@@ -980,6 +986,8 @@ document.addEventListener('click', async e => {
       const input = target.closest('form').elements[target.dataset.reveal];
       input.type = input.type === 'password' ? 'text' : 'password';
       target.setAttribute('aria-label', (input.type === 'password' ? 'Show' : 'Hide') + ' password');
+      target.setAttribute('aria-pressed', String(input.type === 'text'));
+      target.innerHTML = icon(input.type === 'password' ? 'eye' : 'eyeoff');
       return;
     }
     if (target.dataset.page) {

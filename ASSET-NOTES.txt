@@ -1,4 +1,15 @@
-APPROVED LOGIN (25 NOVEMBER 2026)
+CURRENT LOGIN (25 NOVEMBER 2026, VERSION 0.1.3)
+Asset path  assets/login-geometric.png
+Source  Login Page.jpg supplied by the user
+The image tool produced background-only artwork from the supplied reference:
+blue-toned building, navy planes and red/white diagonal accents. All logos,
+text and form controls were removed from that artwork. The header, title,
+white login card and controls are real HTML/CSS, not baked into an image.
+The title uses local system sans-serif fonts. The custom show/hide control
+replaces Edge's native reveal eye within wrapped password fields so the two
+controls do not appear together. Background and logo are bundled offline.
+
+PREVIOUS LOGIN DIRECTION (25 NOVEMBER 2026, VERSION 0.1.2)
 Asset path  assets/login-waves.svg
 Hand-authored vector waves reproduce the blue-only background direction of
 the user's approved mockup, Official document routing login portal(2).png.
@@ -8,10 +19,11 @@ Georgia is a local system serif; no online fonts or remote assets are used.
 OFFICIAL LOGIN SEAL
 Asset path  assets/ncsc-official-logo.jpg
 Source  NCSC LOGO.jpg supplied by the user
-Copied byte-for-byte. Both the mini header seal and the larger watermark use
-this same original file, not an AI-generated reproduction. CSS clips only
-the surrounding white margin and applies opacity to the watermark. The logo
-artwork, colors, lettering and proportions are not redrawn or stretched.
+Copied byte-for-byte and verified against the newly supplied NCSC LOGO(1).jpg.
+The current header uses this original file, not an AI-generated reproduction.
+CSS clips only the surrounding white margin. The artwork, colors, lettering
+and proportions are not redrawn or stretched. The previous design also used
+this same file for its larger watermark.
 
 LEGACY LOGIN PHOTOGRAPH (24 NOVEMBER 2026)
 Asset path  assets/login-background.jpg
