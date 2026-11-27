@@ -7,14 +7,18 @@ flows, NCSC assets, routing-slip template and sample files are retained.
 
 ## Current application
 
-- Individual staff logins, department access and grouped account management.
+- Individual staff logins, personal/shared document access and grouped accounts.
+- Persistent department registration and permanent archived-login removal that
+  preserves audit history and keeps private assignments restricted.
+- Separate staff inbox reports and per-person New/acknowledgement tracking.
 - Department dashboard summaries and six status counters with matching filters.
 - Sequential yearly references in the format `RO1-MEMO-YYYY-00001`.
 - Departments sidebar folders with document counts; optional staff assignment
   filtered by the selected department and validated by the host.
 - Adaptive Excel / CSV and document imports, including saved email intake.
 - Document viewing, editing, routing, requested actions, status and MOV files.
-- Excel / Word / PDF reports, readable print matrices and original-template slips.
+- Excel / Word / PDF reports, readable print matrices and original-template slips,
+  including print-only text editing before printing a shared multi-document slip.
 - Bulk source selection/deletion, filtered Select all, batch restoration and
   administrator-only permanent deletion with confirmation and version checks.
 - Status choices: For routing, Received, Pending, Ongoing, Completed, For Comment,

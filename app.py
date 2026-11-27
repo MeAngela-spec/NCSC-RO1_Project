@@ -102,7 +102,7 @@ def init():
         user_columns = {row["name"] for row in c.execute("PRAGMA table_info(users)")}
         if "recovery" not in user_columns:
             c.execute("ALTER TABLE users ADD COLUMN recovery TEXT")
-        for column, definition in {"active":"INTEGER NOT NULL DEFAULT 1", "account_type":"TEXT NOT NULL DEFAULT 'individual'", "archived_at":"TEXT"}.items():
+        for column, definition in {"active":"INTEGER NOT NULL DEFAULT 1", "account_type":"TEXT NOT NULL DEFAULT 'individual'", "archived_at":"TEXT", "deleted_at":"TEXT"}.items():
             if column not in user_columns:
                 c.execute("ALTER TABLE users ADD COLUMN " + column + " " + definition)
                 if column == "account_type":
@@ -112,6 +112,8 @@ def init():
             c.execute("ALTER TABLE records ADD COLUMN deleted_at TEXT")
         if "assigned_user_id" not in record_columns:
             c.execute("ALTER TABLE records ADD COLUMN assigned_user_id INTEGER REFERENCES users(id)")
+        if "routing_revision" not in record_columns:
+            c.execute("ALTER TABLE records ADD COLUMN routing_revision INTEGER NOT NULL DEFAULT 1")
         file_columns = {row["name"] for row in c.execute("PRAGMA table_info(files)")}
         if "slot" not in file_columns:
             c.execute("ALTER TABLE files ADD COLUMN slot INTEGER NOT NULL DEFAULT 1")
@@ -133,7 +135,17 @@ def init():
             CREATE TABLE IF NOT EXISTS administration_log(id INTEGER PRIMARY KEY, at TEXT NOT NULL,
                 actor TEXT NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS pending_file_deletions(path TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS departments(code TEXT PRIMARY KEY COLLATE NOCASE, name TEXT NOT NULL, created TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS acknowledgements(record_id TEXT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id), routing_revision INTEGER NOT NULL, at TEXT NOT NULL,
+                PRIMARY KEY(record_id,user_id,routing_revision));
         """)
+        for code,name in DEPARTMENTS.items():
+            c.execute("INSERT OR IGNORE INTO departments VALUES(?,?,?)", (code,name,now()))
+        for row in c.execute("SELECT DISTINCT department FROM users WHERE deleted_at IS NULL").fetchall():
+            code = row["department"].strip().upper()
+            if code:
+                c.execute("INSERT OR IGNORE INTO departments VALUES(?,?,?)", (code,DEPARTMENTS.get(code,code),now()))
         finish_file_deletions(c)
 
 def administration_event(c, user, action, details):
@@ -552,12 +564,20 @@ def get_record(c, rid):
     return result
 
 def department_catalog(c):
-    catalog = dict(DEPARTMENTS)
-    for row in c.execute("SELECT DISTINCT department FROM users ORDER BY department"):
-        code = row["department"].strip().upper()
-        if code:
-            catalog.setdefault(code, code)
-    return catalog
+    return {row["code"]:row["name"] for row in c.execute("SELECT code,name FROM departments ORDER BY created,code")}
+
+def require_department(c, code):
+    code = str(code).strip().upper()
+    if code not in department_catalog(c):
+        raise ValueError("Choose a registered department. Add new departments in Account management first.")
+    return code
+
+def receipt_state(c, user, record):
+    ack = c.execute("SELECT at FROM acknowledgements WHERE record_id=? AND user_id=? AND routing_revision=?",
+                    (record["id"],user["id"],record["routing_revision"])).fetchone()
+    record["acknowledged_at"] = ack["at"] if ack else None
+    record["is_new"] = user["role"] == "staff" and not record["deleted_at"] and not ack
+    return record
 
 def assigned_departments(value, catalog):
     result = []
@@ -578,7 +598,7 @@ def assignment_staff(c, body, departments, previous=None):
     # Retain an existing historical assignment, even if the account was retired.
     if previous == int(value) and staff and staff["department"].upper() in departments:
         return int(value)
-    if not staff or not staff["active"] or staff["archived_at"] or staff["account_type"] != "individual" or staff["role"] == "viewer":
+    if not staff or not staff["active"] or staff["archived_at"] or staff["deleted_at"] or staff["account_type"] != "individual" or staff["role"] == "viewer":
         raise ValueError("Choose an active staff account.")
     if len(departments) != 1 or staff["department"].upper() != departments[0]:
         raise ValueError("The selected staff member must belong to the selected department.")
@@ -618,9 +638,14 @@ def may_edit(user):
 def role_editor(user):
     return user["role"] in ("admin", "records")
 
+def can_oversee(user):
+    return role_editor(user) or user["department"].upper() == "ORD"
+
 def department_access(user, record):
-    if user["role"] != "staff":
+    if can_oversee(user):
         return True
+    if record["assigned_user_id"] is not None:
+        return record["assigned_user_id"] == user["id"]
     return user["department"].upper() in record["departments"]
 
 PRINT_LOCK = threading.Lock()
@@ -764,29 +789,61 @@ def filled_slips(c, records):
                                     if info.filename == "word/document.xml" else source.read(info.filename))
         return output.getvalue()
 
-def combined_document_rows(c, records):
-    from routing import combined_sheet, printed_date
+def shared_slip_draft(c, records):
     rows = []
-    for index, record in enumerate(records, 1):
+    for record in records:
         entry = c.execute("SELECT route FROM events WHERE record_id=? AND route IS NOT NULL ORDER BY id DESC LIMIT 1", (record["id"],)).fetchone()
         route = json.loads(entry["route"]) if entry else {}
         cells = record["cells"]
-        note = cells.get("Ref. No.", "") + "\n" + cells.get("Subject", "")
-        if cells.get("Requested Actions"):
-            note += "\nAction: " + cells["Requested Actions"]
-        if cells.get("Action Taken"):
-            note += "\nTaken: " + cells["Action Taken"]
-        rows.append({"from":str(index).zfill(2)+"\n"+route.get("from", "ORD"),
-                     "to":cells.get("Assigned to", ""), "date":printed_date(cells.get("Hard Copy Routed") or route.get("date", "")),
-                     "time":route.get("time", ""), "note":note, "received":""})
-    return combined_sheet(ROOT/"templates/routing-slip.docx", rows)
+        note = "\n".join(prefix+cells[key] for key,prefix in [("Requested Actions","Action: "),("Action Taken","Taken: ")] if cells.get(key))
+        rows.append({"id":record["id"],"version":record["version"],"reference":cells.get("Ref. No.",""),
+                     "subject":cells.get("Subject",""),"from":route.get("from","ORD"),"to":cells.get("Assigned to",""),
+                     "date":cells.get("Hard Copy Routed") or route.get("date",""),"time":route.get("time",""),
+                     "note":note,"sign":"","received":""})
+    return {"subject":"SELECTED DOCUMENTS","rows":rows}
 
-def batch_document(c, records, mode):
+def combined_document_rows(c, records, overrides=None):
+    from routing import combined_sheet, printed_date
+    draft = shared_slip_draft(c,records)
+    if overrides is not None:
+        if len(records) < 2 or not isinstance(overrides,dict):
+            raise ValueError("Print-only edits are available for multiple documents on a shared slip.")
+        title = overrides.get("subject")
+        if not isinstance(title,str) or not title.strip() or len(title)>200:
+            raise ValueError("Enter a shared slip subject of up to 200 characters.")
+        edits = overrides.get("rows")
+        if not isinstance(edits,list) or len(edits)!=len(records):
+            raise ValueError("Reopen the shared slip editor and review every selected document.")
+        by_id = {row.get("id"):row for row in edits if isinstance(row,dict) and isinstance(row.get("id"),str)}
+        if len(by_id)!=len(records) or set(by_id)!={r["id"] for r in records}:
+            raise ValueError("The shared slip selection does not match the requested documents.")
+        limits = {"subject":500,"from":120,"to":200,"date":80,"time":80,"note":3000,"sign":120,"received":200}
+        for row in draft["rows"]:
+            edit = by_id[row["id"]]
+            if edit.get("version") != row["version"]:
+                raise ValueError("A saved document changed. Reopen the printing page to refresh the shared slip.")
+            if set(edit)-set(limits)-{"id","version"}:
+                raise ValueError("Only the shared slip text fields can be edited. References stay unchanged.")
+            for key,limit in limits.items():
+                if key in edit:
+                    if not isinstance(edit[key],str) or len(edit[key])>limit:
+                        raise ValueError("The slip field "+key+" exceeds its allowed text length.")
+                    row[key]=edit[key]
+            if not row["subject"].strip():
+                raise ValueError("Each document needs a printable subject.")
+        draft["subject"]=title.strip()
+    rows=[]
+    for index,row in enumerate(draft["rows"],1):
+        rows.append({**row,"from":str(index).zfill(2)+"\n"+row["from"],"date":printed_date(row["date"]),
+                     "note":"\n".join(filter(None,[row["reference"],row["subject"],row["note"]]))})
+    return combined_sheet(ROOT/"templates/routing-slip.docx",rows,draft["subject"])
+
+def batch_document(c, records, mode, overrides=None):
     if mode == "combined":
-        return combined_document_rows(c, records)
-    if mode == "individual":
+        return combined_document_rows(c, records, overrides)
+    if mode == "individual" and overrides is None:
         return filled_slips(c, records)
-    raise ValueError("Choose combined rows or individual routing slips.")
+    raise ValueError("Choose combined rows or individual routing slips. Individual slips use saved details.")
 
 def export_package(records, format, paper="compact"):
     if paper not in ("compact", "a4"):
@@ -802,7 +859,7 @@ def authorized_file(c, user, fid):
     file = c.execute("SELECT * FROM files WHERE id=?", (fid,)).fetchone()
     if not file:
         raise ValueError("File not found.")
-    if user["role"] == "staff":
+    if not can_oversee(user):
         if file["collection_id"] or file["kind"] == "Original import":
             raise PermissionError("Original workbooks are available to records staff. Use the files attached to your document.")
         if not file["record_id"] or not department_access(user, get_record(c, file["record_id"])):
@@ -895,7 +952,7 @@ class Handler(BaseHTTPRequestHandler):
             return None
         session["expires"] = time.time() + 8 * 3600
         with connect() as c:
-            user = c.execute("SELECT id,username,name,role,department,account_type FROM users WHERE id=? AND active=1 AND archived_at IS NULL", (session["user"],)).fetchone()
+            user = c.execute("SELECT id,username,name,role,department,account_type FROM users WHERE id=? AND active=1 AND archived_at IS NULL AND deleted_at IS NULL", (session["user"],)).fetchone()
         return (dict(user), session) if user else None
 
     def do_GET(self):
@@ -941,7 +998,15 @@ class Handler(BaseHTTPRequestHandler):
             match=re.fullmatch(r"/api/print-page/([0-9a-f]{48})/(\d+)\.png",path)
             if not match:
                 raise ValueError("Print page not found.")
-            self.respond(200,page(match[1],int(match[2]),user["id"]),"image/png")
+            with connect() as c:
+                def authorize(ids):
+                    try:
+                        records=[get_record(c,rid) for rid in ids]
+                        return all(not r["deleted_at"] and department_access(user,r) for r in records)
+                    except ValueError:
+                        return False
+                content=page(match[1],int(match[2]),user["id"],authorize)
+            self.respond(200,content,"image/png")
             return
         if path.startswith("/api/draft-file/"):
             if not role_editor(user):
@@ -961,13 +1026,11 @@ class Handler(BaseHTTPRequestHandler):
                     item = dict(row)
                     item["columns"] = json.loads(item["columns"])
                     item["mappings"] = json.loads(item["mappings"])
-                    item["count"] = c.execute("SELECT COUNT(*) FROM records WHERE collection_id=? AND deleted_at IS NULL", (item["id"],)).fetchone()[0]
+                    visible = [r for r in (get_record(c,entry["id"]) for entry in c.execute("SELECT id FROM records WHERE collection_id=? AND deleted_at IS NULL", (item["id"],))) if department_access(user,r)]
+                    item["count"] = len(visible)
                     if role_editor(user):
                         item["revision"] = collection_revision(c, item["id"])
-                    if user["role"] != "staff" or any(
-                        department_access(user, get_record(c, row["id"]))
-                        for row in c.execute("SELECT id FROM records WHERE collection_id=? AND deleted_at IS NULL", (item["id"],))
-                    ):
+                    if can_oversee(user) or visible:
                         collections.append(item)
                 self.respond(200, collections)
             elif path == "/api/register":
@@ -978,11 +1041,11 @@ class Handler(BaseHTTPRequestHandler):
                 clause = "IS NOT NULL" if deleted else "IS NULL"
                 records = [get_record(c, row["id"]) for row in c.execute(
                     "SELECT id FROM records WHERE deleted_at " + clause + " ORDER BY rowid DESC")]
-                self.respond(200, [r for r in records if department_access(user, r)])
+                self.respond(200, [receipt_state(c,user,r) for r in records if department_access(user, r)])
             elif path == "/api/records":
                 cid = query.get("collection", [""])[0]
                 records = [get_record(c, row["id"]) for row in c.execute("SELECT id FROM records WHERE collection_id=? AND deleted_at IS NULL ORDER BY rowid", (cid,))]
-                self.respond(200, [r for r in records if department_access(user, r)])
+                self.respond(200, [receipt_state(c,user,r) for r in records if department_access(user, r)])
             elif path.startswith("/api/record/"):
                 r = get_record(c, path.split("/")[-1])
                 if not department_access(user, r):
@@ -993,9 +1056,9 @@ class Handler(BaseHTTPRequestHandler):
                 r["editable_columns"] = editable_columns(user, r)
                 r["files"] = [dict(x) for x in c.execute("SELECT id,name,kind,slot FROM files WHERE record_id=? OR collection_id=?", (r["id"], r["collection_id"]))]
                 r["events"] = [dict(x) for x in c.execute("SELECT * FROM events WHERE record_id=? ORDER BY id", (r["id"],))]
-                if user["role"] == "staff":
+                if not can_oversee(user):
                     r["files"] = [f for f in r["files"] if f["kind"] != "Original import"]
-                self.respond(200, r)
+                self.respond(200, receipt_state(c,user,r))
             elif path.startswith("/api/file-preview/"):
                 file = authorized_file(c, user, path.split("/")[-1])
                 content, mime = preview_file(file)
@@ -1025,12 +1088,12 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/departments":
                 catalog = department_catalog(c)
                 self.respond(200, [{"code":code,"name":name} for code,name in catalog.items()
-                                  if user["role"] != "staff" or code == user["department"].upper()])
+                                  if can_oversee(user) or code == user["department"].upper()])
             elif path == "/api/users":
                 if user["role"] != "admin":
                     self.respond(403, {"error": "Administrator access required."})
                     return
-                self.respond(200, [dict(r) for r in c.execute("SELECT id,username,name,role,department,active,account_type,archived_at FROM users ORDER BY name")])
+                self.respond(200, [dict(r) for r in c.execute("SELECT id,username,name,role,department,active,account_type,archived_at FROM users WHERE deleted_at IS NULL ORDER BY name")])
             elif path == "/api/print-batch":
                 records = selected_records(c, user, query.get("ids", [""])[0].split(","))
                 content = render_slip_pdf(batch_document(c, records, query.get("mode", ["combined"])[0]))
@@ -1078,7 +1141,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/recover":
             with self.write_transaction() as c:
                 username = str(body.get("username", "")).strip()
-                user = c.execute("SELECT * FROM users WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+                user = c.execute("SELECT * FROM users WHERE username=? COLLATE NOCASE AND deleted_at IS NULL", (username,)).fetchone()
                 code = str(body.get("code", "")).strip().upper()
                 if not user or not user["active"] or not user["recovery"] or not password_ok(code, user["recovery"]):
                     self.respond(400, {"error": "The username or recovery code is incorrect."})
@@ -1115,7 +1178,7 @@ class Handler(BaseHTTPRequestHandler):
                 if len(failures) >= 8:
                     self.respond(429, {"error": "Too many attempts. Please wait one minute before trying again."})
                     return
-                user = c.execute("SELECT * FROM users WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+                user = c.execute("SELECT * FROM users WHERE username=? COLLATE NOCASE AND deleted_at IS NULL", (username,)).fetchone()
                 if not user or not user["active"] or not password_ok(body.get("password", ""), user["password"]):
                     LOGIN_ATTEMPTS[attempt_key] = failures + [time.time()]
                     self.respond(401, {"error": "The username or password is incorrect."})
@@ -1185,14 +1248,19 @@ class Handler(BaseHTTPRequestHandler):
                 (folder/"metadata.json").write_text(json.dumps(metadata),encoding="utf-8")
             self.respond(200,{"token":token,"info":result["info"],"candidates":result["candidates"],"warnings":result["warnings"]})
             return
-        if path in ("/api/export", "/api/print-batch", "/api/print-job"):
+        if path in ("/api/export", "/api/print-batch", "/api/print-job", "/api/slip-draft"):
             with connect() as c:
                 records = selected_records(c, user, body.get("ids"), 10000 if path == "/api/export" else 100)
+                if path == "/api/slip-draft":
+                    if len(records)<2:
+                        raise ValueError("Select at least two documents for a shared slip.")
+                    self.respond(200,shared_slip_draft(c,records))
+                    return
                 if path in ("/api/print-batch", "/api/print-job"):
-                    content = render_slip_pdf(batch_document(c, records, str(body.get("mode", "combined"))))
+                    content = render_slip_pdf(batch_document(c, records, str(body.get("mode", "combined")),body.get("draft")))
                     if path == "/api/print-job":
                         from print_jobs import create
-                        self.respond(200,create(content,user["id"]))
+                        self.respond(200,create(content,user["id"],[r["id"] for r in records]))
                     else:
                         self.respond(200, content, "application/pdf", "NCSC-Routing-Slips.pdf", inline=True)
                 else:
@@ -1200,7 +1268,44 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(200, content, mime, name)
             return
         with self.write_transaction() as c:
-            if path == "/api/import":
+            if path == "/api/acknowledge":
+                r = get_record(c,body["id"])
+                if not department_access(user,r):
+                    raise PermissionError("This document is not assigned to your account or department inbox.")
+                if r["deleted_at"] or body.get("version") != r["version"]:
+                    self.respond(409,{"error":"This document changed. Reopen it before acknowledging."})
+                    return
+                added = c.execute("INSERT OR IGNORE INTO acknowledgements VALUES(?,?,?,?)",(r["id"],user["id"],r["routing_revision"],now())).rowcount
+                if added:
+                    event(c,r["id"],user,"Receipt acknowledged")
+                self.respond(200,{"ok":True})
+            elif path == "/api/departments":
+                if user["role"] != "admin":
+                    raise PermissionError("Administrator access required.")
+                code = str(body.get("code", "")).strip().upper()
+                name = str(body.get("name", "")).strip()
+                if not re.fullmatch(r"[A-Z][A-Z0-9_-]{1,19}", code) or not 2 <= len(name) <= 120:
+                    raise ValueError("Use a 2–20 character department code and a 2–120 character department name.")
+                if code in department_catalog(c):
+                    raise ValueError("That department code already exists.")
+                c.execute("INSERT INTO departments VALUES(?,?,?)", (code,name,now()))
+                administration_event(c,user,"Department added",{"code":code,"name":name})
+                self.respond(200,{"ok":True,"code":code})
+            elif path == "/api/account-purge":
+                if user["role"] != "admin":
+                    raise PermissionError("Administrator access required.")
+                target = c.execute("SELECT * FROM users WHERE id=? AND deleted_at IS NULL",(body["id"],)).fetchone()
+                if not target or not target["archived_at"] or target["account_type"] != "individual" or target["id"] == user["id"]:
+                    raise ValueError("Only archived individual staff accounts can be permanently deleted.")
+                if body.get("confirmation") != target["username"]:
+                    raise ValueError("Type the exact username to confirm permanent account deletion.")
+                administration_event(c,user,"Staff login/profile permanently deleted",{"user_id":target["id"],"username":target["username"]})
+                # Preserve a non-login identity so private assignments never become shared.
+                c.execute("UPDATE users SET username=?,name='Deleted staff account',password=?,recovery=NULL,active=0,deleted_at=? WHERE id=?",
+                          ("removed_"+uuid.uuid4().hex,password_hash(secrets.token_urlsafe(48)),now(),target["id"]))
+                invalidate_sessions(target["id"])
+                self.respond(200,{"ok":True})
+            elif path == "/api/import":
                 if not role_editor(user):
                     self.respond(403, {"error": "Records access required."})
                     return
@@ -1271,8 +1376,10 @@ class Handler(BaseHTTPRequestHandler):
                     if "assigned_user_id" not in body and new_assigned != old_assigned:
                         previous = None
                     staff_id = assignment_staff(c, body, codes, previous)
-                c.execute("UPDATE records SET cells=?,assigned_user_id=?,version=version+1 WHERE id=?",
-                          (json.dumps(cells), staff_id, r["id"]))
+                rerouted = (new_assigned != old_assigned or staff_id != r["assigned_user_id"] or
+                            cells.get(r["mappings"].get("action"), "") != r["cells"].get(r["mappings"].get("action"), ""))
+                c.execute("UPDATE records SET cells=?,assigned_user_id=?,version=version+1,routing_revision=routing_revision+? WHERE id=?",
+                          (json.dumps(cells), staff_id, int(rerouted), r["id"]))
                 event(c, r["id"], user, "Updated record")
                 if staff_id != r["assigned_user_id"]:
                     name = c.execute("SELECT name FROM users WHERE id=?", (staff_id,)).fetchone() if staff_id else None
@@ -1461,7 +1568,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path in ("/api/account-archive", "/api/account-restore"):
                 if user["role"] != "admin":
                     raise PermissionError("Administrator access required.")
-                target = c.execute("SELECT * FROM users WHERE id=?", (body["id"],)).fetchone()
+                target = c.execute("SELECT * FROM users WHERE id=? AND deleted_at IS NULL", (body["id"],)).fetchone()
                 if not target:
                     raise ValueError("Staff account not found.")
                 if target["id"] == user["id"]:
@@ -1484,14 +1591,14 @@ class Handler(BaseHTTPRequestHandler):
                 if user["role"] != "admin":
                     self.respond(403, {"error": "ORD administrator access required."})
                     return
-                target = c.execute("SELECT * FROM users WHERE id=?", (body["id"],)).fetchone()
+                target = c.execute("SELECT * FROM users WHERE id=? AND deleted_at IS NULL", (body["id"],)).fetchone()
                 if not target:
                     raise ValueError("Department account not found.")
                 if target["archived_at"]:
                     raise ValueError("Restore this archived account before editing or enabling it.")
                 username = str(body.get("username", "")).strip().upper()
                 name = str(body.get("name", "")).strip()
-                department = str(body.get("department", "")).strip().upper()
+                department = require_department(c, body.get("department", ""))
                 role = str(body.get("role", "staff"))
                 account_type = str(body.get("account_type", "individual"))
                 active = 1 if body.get("active", True) else 0
@@ -1519,7 +1626,7 @@ class Handler(BaseHTTPRequestHandler):
                 if user["role"] != "admin":
                     self.respond(403, {"error": "ORD administrator access required."})
                     return
-                target = c.execute("SELECT id,archived_at FROM users WHERE id=?", (body["id"],)).fetchone()
+                target = c.execute("SELECT id,archived_at FROM users WHERE id=? AND deleted_at IS NULL", (body["id"],)).fetchone()
                 if not target:
                     raise ValueError("Department account not found.")
                 if target["archived_at"]:
@@ -1587,7 +1694,7 @@ class Handler(BaseHTTPRequestHandler):
                 code = recovery_code()
                 c.execute("INSERT INTO users(username,password,name,role,department,recovery) VALUES(?,?,?,?,?,?)",
                           (body["username"].strip(), password_hash(body["password"]), body["name"].strip(),
-                           body["role"], body["department"].strip().upper(), password_hash(code)))
+                           body["role"], require_department(c,body["department"]), password_hash(code)))
                 self.respond(200, {"ok": True, "recovery_code": code})
             elif path == "/api/password":
                 credentials = c.execute("SELECT password,recovery FROM users WHERE id=?", (user["id"],)).fetchone()

@@ -74,7 +74,7 @@ def _height(values, widths):
     return max(36, lines*12+8)
 
 
-def combined_sheet(template, rows):
+def combined_sheet(template, rows, subject="SELECTED DOCUMENTS"):
     """One selected document per row, sharing each original NCSC sheet."""
     with ZipFile(template) as source:
         root = etree.fromstring(source.read("word/document.xml"))
@@ -106,7 +106,7 @@ def combined_sheet(template, rows):
             page = [copy.deepcopy(child) for child in original]
             tables = [child for child in page if child.tag == W+"tbl"]
             heads = tables[0].findall("w:tr", NS)[1].findall("w:tc", NS)
-            put_cell(heads[0], "SUBJECT  : SELECTED DOCUMENTS", bold=True)
+            put_cell(heads[0], "SUBJECT  : "+subject, bold=True)
             put_cell(heads[1], f"BATCH  : {index+1} / {len(pages)}", bold=True)
             data_table = tables[1]
             existing = data_table.findall("w:tr", NS)

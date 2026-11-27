@@ -607,3 +607,36 @@ dialog footer { position: sticky; bottom: 0; z-index: 3; }
 @media(max-width:1200px) { .stats { grid-template-columns: repeat(3,minmax(0,1fr)); } .department-summary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media(max-width:620px) { .department-summary-grid { grid-template-columns: 1fr; padding: 14px; } .department-summary-note { padding: 0 14px 14px; } .account-department > summary { padding: 14px; gap: 8px; } .account-department-title small { max-width: 180px; } }
 @media(max-width:520px) { .stats { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+/* Staff inboxes, compact account fields and acknowledgement badges. */
+.staff-inboxes { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; }
+.inbox-total { display: inline-block; margin-left: 6px; color: #496198; background: #edf2ff; padding: 2px 7px; border-radius: 5px; font-size: 12px; }
+.inbox-summary { padding: 10px 20px; color: #687795; background: #fafbfe; border-bottom: 1px solid var(--line); font-size: 12px; }
+.assignment-list { display: grid; gap: 12px; padding: 16px; }
+.assignment-card { position: relative; display: grid; gap: 8px; width: 100%; padding: 18px; text-align: left; background: #fff; border: 1px solid #dde5f4; border-radius: 8px; color: #293d63; }
+.assignment-card:hover { background: #f6f9ff; border-color: #a9bce3; }
+.assignment-card strong { padding-right: 38px; font-size: 14px; line-height: 1.5; }
+.assignment-card small { color: #73809a; font-size: 12px; }
+.assignment-card .pill { justify-self: start; }
+.new-badge { display: inline-block; flex: none; padding: 2px 7px; border-radius: 4px; background: #e8efff; color: #23499c; border: 1px solid #ccdafa; font-size: 11px; font-weight: 700; line-height: 1.4; white-space: nowrap; }
+.assignment-card > .new-badge { position: absolute; top: 10px; right: 10px; }
+.document-subject { position: relative; padding-right: 0; }
+.document-subject:has(.new-badge) { padding-right: 43px; }
+.document-subject > .new-badge { position: absolute; top: 0; right: 0; }
+.document-flags { margin-left: auto; display: flex; align-items: flex-end; flex-direction: column; gap: 7px; }
+.document-flags .pill { margin-left: 0; }
+dialog[data-size=account] { width: min(680px,calc(100vw - 32px)); }
+#accountForm input, #accountForm select { height: 44px; }
+.account-field-help { color: #748099; font-size: 12px; line-height: 1.6; align-self: center; }
+#departmentForm [name=code] { max-width: 200px; text-transform: uppercase; }
+@media(max-width:1000px) { .staff-inboxes { grid-template-columns: 1fr; } }
+.shared-slip-editor { width: min(960px,calc(100% - 32px)); margin: 24px auto 40px; padding: 26px; background: white; border: 1px solid var(--line); border-radius: 10px; }
+.shared-slip-heading { margin-bottom: 24px; }
+.shared-slip-heading h1 { font-size: 22px; color: #233f80; }
+.shared-slip-heading p { margin-top: 8px; font-size: 14px; line-height: 1.6; color: #6c7890; }
+.slip-row-fields { min-width: 0; padding: 18px; margin: 0; border: 1px solid #dce3f0; border-radius: 8px; }
+.slip-row-fields legend { color: #405985; padding: 0 7px; font-size: 13px; font-weight: 600; }
+.slip-row-fields textarea { min-height: 70px; }
+.shared-slip-actions { display: flex; gap: 18px; align-items: center; justify-content: space-between; position: sticky; bottom: 0; padding: 15px 0; background: white; }
+.shared-slip-actions span { font-size: 12px; color: #70809b; }
+@media(max-width:600px) { .shared-slip-editor { padding: 18px; } .shared-slip-actions { align-items: stretch; flex-direction: column; } }

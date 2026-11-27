@@ -21,9 +21,10 @@ used for the work queue and document access. It does not need a second login.
 
 Administrator manages records, imports, settings and user accounts.
 Records officer can manage records, import and route across departments.
-Department staff sees documents assigned to their department and updates
-Action Taken, status, Date Submitted and MOV fields.
-Office reviewer can read and print all office records.
+Department staff sees their specific assignments and shared department records
+with no specific assignee. Other staff cannot access personal assignments.
+Administrator, records officer and ORD accounts can oversee all documents.
+Department reviewers have read-only access to their shared department records.
 
 Account management creates/edits staff accounts, assigns departments and
 access, archives/restores accounts, disables/reactivates accounts and issues
@@ -419,7 +420,7 @@ Staff accounts continue to see only their own department's documents.
 New document and Edit document offer Department first, then Specific staff
 (optional). Only active individual staff in that department can be newly
 assigned. View document, the register and activity history identify the staff
-assignment. The host validates membership; department access remains unchanged.
+assignment. The host validates membership and personal/shared access on every request.
 
 Statuses: For routing, Received, Pending, Ongoing, Completed, For Comment,
 For Signature, Other / specify.
@@ -475,3 +476,40 @@ code because only its hash is stored. A successful change displays a fresh
 recovery code; save it before closing. The previous code expires and other
 sessions for the account end. The verified current session remains signed in.
 Forgot password on the login page still uses the saved recovery code offline.
+
+PRIVATE ASSIGNMENTS AND SHARED-SLIP EDITOR (VERSION 0.1.6)
+Staff dashboard separates My assignments from Department inbox, each with
+accessible totals, new counts, pending and completed counts. Department inbox
+contains only records with no individual assignee. Personal documents are
+visible to the assignee, administrators, ORD and records officers; department
+peers and read-only reviewers cannot view them. File, print, export and cached
+print-image requests enforce the same permissions. Refresh loads new work.
+
+New means the signed-in staff member has not acknowledged this assignment.
+Opening a document or changing status does not dismiss New. Choose Acknowledge
+receipt in View document. It records your acknowledgement without changing
+For Comment, For Signature or another saved status. Shared documents require
+each staff member to acknowledge independently. Changing assignee, assigned
+department or requested action creates a new routing revision to acknowledge.
+
+Account management > Add new department registers a unique code and name.
+Departments persist without needing a staff account. Add staff and Edit staff
+use real department dropdowns; New document loads the current directory when
+opened. Add staff uses a compact two-column form with a half-width password.
+
+Archived individual accounts have Delete permanently for administrators.
+Type the exact username to confirm. Login credentials and profile are removed
+irreversibly; the account disappears from account management and cannot be
+restored. A non-login identity and official audit history remain for existing
+assignments. This prevents private documents becoming shared or accessible to
+a new person who later receives the same username. Reassign those documents
+explicitly as an authorized officer if another staff member takes over.
+
+Print selected rows: for two or more documents, the print tab first opens a
+shared-slip editor. Change the shared subject and each row's subject, from/to,
+date, time, notes, initials or received-by text if needed. References remain
+fixed. Print shared slip generates the original NCSC template and opens the
+print dialog. Edit slip details allows another print-only revision. Nothing
+is saved into the document register. If a selected record changed or access
+was removed, refresh the print selection before continuing. One-document
+individual slips still go directly to printing with their saved details.

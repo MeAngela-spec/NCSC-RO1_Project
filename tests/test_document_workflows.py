@@ -204,6 +204,107 @@ class DepartmentAndBatchTests(unittest.TestCase):
         self.client("fixture.records").request("/api/restore-batch", {"items":items})
         self.assertIsNone(self.record(rid)["deleted_at"])
 
+    def test_private_access_and_per_person_acknowledgement(self):
+        self.admin.request("/api/users", {"username":"fixture.peer","name":"Fictional OPS peer","department":"OPS","role":"staff","password":"fixture-password-123"})
+        self.admin.request("/api/users", {"username":"fixture.ord","name":"Fictional ORD officer","department":"ORD","role":"staff","password":"fixture-password-123"})
+        peer = self.client("fixture.peer")
+        owner = self.client("fixture.ops")
+        reviewer = self.client("fixture.review")
+        private = self.admin.request("/api/new", {"cells":{"Subject":"Fictional private memo","Assigned to":"OPS","Status":"For Comment"},"assigned_user_id":self.users["fixture.ops"]["id"]})["id"]
+        collection = self.record(private)["collection_id"]
+        shared = self.admin.request("/api/new", {"collection":collection,"cells":{"Subject":"Fictional shared memo","Assigned to":"OPS","Status":"Pending"}})["id"]
+        before = self.record(private)
+        self.admin.request("/api/attach", {"record":private,"kind":"MOV","slot":1,"version":before["version"]}, upload=("Private-evidence.txt",b"fictional private evidence"))
+        row = self.record(private)
+        fid = row["files"][0]["id"]
+        for denied in [peer,reviewer,self.client("fixture.afs")]:
+            denied.request("/api/record/"+private,expected=403)
+            denied.request("/api/file/"+fid,expected=403)
+            denied.request("/api/file-preview/"+fid,expected=403)
+            denied.request("/api/docx/"+private,expected=403)
+            denied.request("/api/print/"+private,expected=403)
+            denied.request("/api/export",{"ids":[private],"format":"xlsx"},expected=403)
+            denied.request("/api/print-job",{"ids":[private]},expected=403)
+            denied.request("/api/slip-draft",{"ids":[private,shared]},expected=403)
+            denied.request("/api/acknowledge",{"id":private,"version":row["version"]},expected=403)
+        for allowed in [owner,self.admin,self.client("fixture.records"),self.client("fixture.ord")]:
+            allowed.request("/api/record/"+private)
+        self.assertNotIn(private,[r["id"] for r in peer.request("/api/register")])
+        self.assertEqual([r["id"] for r in peer.request("/api/records?collection="+collection)],[shared])
+        self.assertEqual(next(c for c in peer.request("/api/collections") if c["id"]==collection)["count"],1)
+        self.assertTrue(owner.request("/api/record/"+private)["is_new"])
+        # Reading or updating status is not acknowledgement.
+        self.assertTrue(owner.request("/api/record/"+private)["is_new"])
+        owner.request("/api/acknowledge",{"id":private,"version":row["version"]})
+        self.assertFalse(owner.request("/api/record/"+private)["is_new"])
+        self.assertEqual(self.record(private)["cells"]["Status"],"For Comment")
+        shared_row = self.record(shared)
+        owner.request("/api/acknowledge",{"id":shared,"version":shared_row["version"]})
+        self.assertFalse(owner.request("/api/record/"+shared)["is_new"])
+        self.assertTrue(peer.request("/api/record/"+shared)["is_new"])
+        self.admin.request("/api/save",{"id":private,"version":row["version"],"cells":row["cells"],"assigned_user_id":next(u["id"] for u in self.admin.request('/api/users') if u['username']=='fixture.peer')})
+        owner.request("/api/record/"+private,expected=403)
+        self.assertTrue(peer.request("/api/record/"+private)["is_new"])
+        # A cached native-print page must also stop being accessible after rerouting.
+        import print_jobs
+        import pypdfium2
+        document = pypdfium2.PdfDocument.new()
+        page = document.new_page(100,100);page.close()
+        raw = io.BytesIO();document.save(raw);document.close()
+        job = print_jobs.create(raw.getvalue(),self.users["fixture.ops"]["id"],[private])
+        owner.request(job["pages"][0]["url"],expected=403)
+
+    def test_departments_and_permanent_account_removal_keep_private_identity(self):
+        self.client("fixture.ops").request("/api/departments",{"code":"PLAN","name":"Planning"},expected=403)
+        self.admin.request("/api/departments",{"code":"PLN","name":"Planning Section"})
+        self.admin.request("/api/departments",{"code":"pln","name":"Duplicate"},expected=400)
+        created = self.admin.request("/api/users",{"username":"fixture.retired","name":"Fictional retiree","department":"PLN","role":"staff","password":"fixture-password-123"})
+        target = next(u for u in self.admin.request('/api/users') if u['username']=='fixture.retired')
+        retired = self.client("fixture.retired")
+        rid = self.admin.request("/api/new",{"cells":{"Subject":"Fictional retained assignment","Assigned to":"PLN"},"assigned_user_id":target["id"]})["id"]
+        self.admin.request("/api/account-purge",{"id":target["id"],"confirmation":target["username"]},expected=400)
+        self.admin.request("/api/account-archive",{"id":target["id"]})
+        self.admin.request("/api/account-purge",{"id":target["id"],"confirmation":"wrong"},expected=400)
+        self.admin.request("/api/account-purge",{"id":target["id"],"confirmation":target["username"]})
+        self.assertIsNone(retired.request('/api/me')['user'])
+        self.assertNotIn(target['id'],[u['id'] for u in self.admin.request('/api/users')])
+        self.admin.request("/api/account-restore",{"id":target["id"]},expected=400)
+        self.admin.request("/api/account-recovery",{"id":target["id"]},expected=400)
+        self.admin.request("/api/users",{"username":"fixture.retired","name":"Fictional replacement","department":"PLN","role":"staff","password":"fixture-password-123"})
+        replacement = self.client("fixture.retired")
+        replacement.request('/api/record/'+rid,expected=403)
+        self.assertEqual(self.record(rid)['assigned_user_id'],target['id'])
+        self.app.init()
+        self.assertIn({'code':'PLN','name':'Planning Section'},self.admin.request('/api/departments'))
+        row = self.record(rid)
+        self.admin.request('/api/save',{'id':rid,'version':row['version'],'cells':row['cells'],'assigned_user_id':None})
+        replacement.request('/api/record/'+rid)
+
+    def test_shared_slip_overrides_are_validated_and_print_only(self):
+        from zipfile import ZipFile
+        ids = [self.admin.request('/api/new',{'cells':{'Subject':'Fictional slip '+str(i),'Assigned to':'ORD'}})['id'] for i in range(2)]
+        originals = [self.record(rid) for rid in ids]
+        draft = self.admin.request('/api/slip-draft',{'ids':ids})
+        draft['subject']='Combined subject for printing'
+        for i,row in enumerate(draft['rows']):
+            row.pop('reference')
+            row.update(subject='Print subject '+str(i),date='2026-11-27',time='09:30 AM',note='Print-only note')
+        with self.app.connect() as c:
+            output=self.app.batch_document(c,[self.app.get_record(c,rid) for rid in ids],'combined',draft)
+        with ZipFile(io.BytesIO(output)) as archive:
+            xml=archive.read('word/document.xml').decode()
+            self.assertIn('Combined subject for printing',xml)
+            self.assertIn('Print subject 0',xml)
+            self.assertIn('09:30 AM',xml)
+            for original in originals:self.assertIn(original['cells']['Ref. No.'],xml)
+        for rid,original in zip(ids,originals):
+            self.assertEqual(self.record(rid)['cells'],original['cells'])
+            self.assertEqual(self.record(rid)['version'],original['version'])
+        stale={**draft,'rows':[{**row,'version':0} for row in draft['rows']]}
+        self.admin.request('/api/print-job',{'ids':ids,'mode':'combined','draft':stale},expected=400)
+        forged={**draft,'rows':[{**draft['rows'][0],'reference':'FAKE'},draft['rows'][1]]}
+        self.admin.request('/api/print-job',{'ids':ids,'mode':'combined','draft':forged},expected=400)
+
 
 if __name__ == "__main__":
     unittest.main()

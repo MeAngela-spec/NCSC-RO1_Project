@@ -7,7 +7,7 @@ const state = {
   user: null, csrf: '', collections: [], rows: [], deleted: [], record: null, editing: false,
   page: new URLSearchParams(location.search).get('page') === 'documents' ? 'documents' : 'dashboard', settingsOpen: false, collection: '', query: '', status: '', draft: null, dirty: false,
   selected: new Set(), selecting: false, deletedSelected: new Set(), deletedSelecting: false,
-  importSelected: new Set(), importSelecting: false, departmentsOpen: false, department: '', departments: [], directory: []
+  importSelected: new Set(), importSelecting: false, departmentsOpen: false, department: '', departments: [], directory: [], inboxScope:'all'
 };
 const departments = {ORD:'Office of the Regional Director', AFS:'Administrative and Finance Section', OPS:'Operations'};
 const mappingLabels = {
@@ -63,6 +63,8 @@ const canonicalStatus = value => Object.hasOwn(statusNames,normalize(value)) ? s
 const statusOf = r => canonicalStatus(mapped(r, 'status'));
 const departmentName = code => code==='__unassigned__' ? 'Documents awaiting department assignment' : state.departments.find(d=>d.code===code)?.name || departments[code] || code;
 const inDepartment = (record,code) => !code || (code==='__unassigned__' ? !record.departments?.length : record.departments?.includes(code));
+const inInbox = (record,scope=state.inboxScope) => scope==='personal' ? record.assigned_user_id===state.user.id : scope==='department' ? !record.assigned_user_id : true;
+const newBadge = record => record.is_new ? '<span class="new-badge">New</span>' : '';
 const documentSelection = () => state.page==='deleted' ? state.deletedSelected : state.selected;
 const isSelecting = () => state.page==='deleted' ? state.deletedSelecting : state.selecting;
 const subjectOf = r => mapped(r, 'subject') || Object.values(r.cells).find(Boolean) || 'Untitled document';
@@ -207,7 +209,7 @@ function forgotPassword() {
 
 /* Workspace navigation and document register */
 function navItem(page, text, symbol, count) {
-  const active = state.page===page && !(page==='documents' && state.department);
+  const active = state.page===page && !(page==='documents' && (state.department||state.inboxScope!=='all'));
   return '<button type="button" class="nav-item ' + (active ? 'active' : '') +
     '" data-page="' + page + '"' + (active ? ' aria-current="page"' : '') + '>' +
     icon(symbol) + text + (count !== undefined ? '<span class="count">' + count + '</span>' : '') + '</button>';
@@ -219,6 +221,7 @@ function render() {
     '<div class="header-right"><span>Document Routing &amp; Tracking · Region I</span><span class="department-chip">' + esc(u.department) + ' workspace</span></div></header>' +
     '<div class="workspace"><aside class="sidebar"><div class="sidebar-navigation"><p class="nav-label">WORKSPACE</p><nav aria-label="Main navigation">' +
     navItem('dashboard', 'Dashboard', 'grid') + navItem('documents', editor() ? 'Document register' : 'Assigned documents', 'file', state.rows.length) +
+    (u.role==='staff'?'<button class="nav-item '+(state.page==='documents'&&state.inboxScope==='personal'?'active':'')+'" data-inbox-scope="personal">'+icon('user')+'My assignments<span class="count">'+state.rows.filter(r=>inInbox(r,'personal')).length+'</span></button><button class="nav-item '+(state.page==='documents'&&state.inboxScope==='department'?'active':'')+'" data-inbox-scope="department">'+icon('folder')+'Department inbox<span class="count">'+state.rows.filter(r=>inInbox(r,'department')).length+'</span></button>':'')+
     '<div class="settings-menu"><button type="button" class="nav-item settings-toggle '+(state.department?'active':'')+'" data-action="departments" aria-expanded="'+state.departmentsOpen+'" aria-controls="departmentsMenu">'+icon('folder')+'Departments<span class="nav-chevron">'+icon('chevron')+'</span></button>'+
     '<div id="departmentsMenu" class="settings-items" '+(!state.departmentsOpen?'hidden':'')+'>'+state.departments.map(d=>
       '<button type="button" class="nav-item '+(state.page==='documents'&&state.department===d.code?'active':'')+'" data-department="'+esc(d.code)+'" title="'+esc(d.name)+'"'+(state.page==='documents'&&state.department===d.code?' aria-current="page"':'')+'>'+icon('file')+esc(d.code)+'<span class="count">'+state.rows.filter(r=>r.departments?.includes(d.code)).length+'</span></button>').join('')+'</div></div>'+
@@ -243,7 +246,7 @@ function pageHeading(title, subtitle, actionsMarkup = '') {
     '</h1><p>' + esc(subtitle) + '</p></div><div class="tools">' + actionsMarkup + '</div></div>';
 }
 function statsMarkup() {
-  const rows = state.page==='documents' && state.department ? state.rows.filter(r=>inDepartment(r,state.department)) : state.rows;
+  const rows = state.page==='documents' ? state.rows.filter(r=>inDepartment(r,state.department)&&inInbox(r)) : state.rows;
   const stats = [
     ['All documents', rows.length, 'file', '', ''],
     ['For routing', rows.filter(r => statusOf(r) === 'For routing').length, 'clock', 'orange', 'For routing'],
@@ -257,6 +260,7 @@ function statsMarkup() {
     '<span><span class="label">' + label + '</span><strong>' + count + '</strong></span><span class="stat-icon ' + color + '">' + icon(symbol) + '</span></button>').join('') + '</section>';
 }
 function renderDashboard() {
+  if (state.user.role==='staff') return renderStaffDashboard();
   const summaries=state.departments.map(d=>({code:d.code,name:d.name,count:state.rows.filter(r=>inDepartment(r,d.code)).length}));
   const unassigned=state.rows.filter(r=>!r.departments?.length).length;
   if (unassigned) summaries.push({code:'__unassigned__',name:'Awaiting department assignment',count:unassigned});
@@ -267,6 +271,16 @@ function renderDashboard() {
     '<div class="department-summary-grid">'+summaries.map(d=>'<button type="button" class="department-summary" data-department="'+esc(d.code)+'" aria-label="'+esc(d.code==='__unassigned__'?'Unassigned documents':d.code+' Documents')+' — '+d.count+'">'+
       '<span class="stat-icon">'+icon('folder')+'</span><span class="department-summary-copy"><strong>'+esc(d.code==='__unassigned__'?'Unassigned documents':d.code+' Documents')+'</strong><small>'+esc(d.name)+'</small></span><span class="department-total">'+d.count+'</span>'+icon('chevron')+'</button>').join('')+'</div>'+
     '<p class="department-summary-note">Counts include accessible active documents. A document assigned to multiple departments appears in each matching department.</p></section>';
+}
+function renderStaffDashboard() {
+  const sections=[['personal','My assignments','Documents assigned specifically to your account.'],['department','Department inbox','Shared documents with no specific staff assignment.']];
+  $('content').innerHTML=pageHeading('Dashboard',departmentName(state.user.department),button('Refresh','refresh','','refresh'))+statsMarkup()+
+    '<div class="staff-inboxes">'+sections.map(([scope,title,description])=>{
+      const rows=state.rows.filter(r=>inInbox(r,scope));
+      return '<section class="card"><div class="card-head"><div><h2>'+title+' <span class="inbox-total">'+rows.length+'</span></h2><small>'+description+'</small></div><button class="btn link" data-inbox-scope="'+scope+'">View all</button></div>'+
+        '<div class="inbox-summary"><span>'+rows.filter(r=>r.is_new).length+' new · '+rows.filter(r=>statusOf(r)==='Pending').length+' pending · '+rows.filter(r=>statusOf(r)==='Completed').length+' completed</span></div>'+
+        (rows.length?'<div class="assignment-list">'+rows.slice(0,5).map(r=>'<button type="button" class="assignment-card" data-record="'+r.id+'">'+newBadge(r)+'<strong>'+esc(subjectOf(r))+'</strong><small>'+esc(refOf(r))+'</small>'+pill(statusOf(r))+'</button>').join('')+'</div>':'<div class="account-group-empty">No '+(scope==='personal'?'personal assignments':'shared department documents')+' yet.</div>')+'</section>';
+    }).join('')+'</div>';
 }
 function emptyMarkup(deleted = false) {
   return '<div class="empty"><div class="empty-icon">' + icon(deleted ? 'trash' : 'folder') + '</div><h2>' +
@@ -280,7 +294,7 @@ function filteredRows() {
   const rows = state.page === 'deleted' ? state.deleted : state.rows;
   const query = state.query.toLowerCase();
   return rows.filter(r => (!state.collection || r.collection_id === state.collection) &&
-    inDepartment(r,state.department) &&
+    inDepartment(r,state.department) && inInbox(r) &&
     (!query || [...Object.values(r.cells),r.source?.filename,r.source?.sender].some(v => String(v || '').toLowerCase().includes(query))) &&
     (!state.status || (state.status === 'active' ? ['Received', 'Pending', 'Ongoing'].includes(statusOf(r)) : state.status==='__other__' ? !statuses.includes(statusOf(r)) : statusOf(r) === state.status)));
 }
@@ -297,9 +311,9 @@ function shownColumns() {
 }
 function renderDocuments() {
   const deleted = state.page === 'deleted';
-  const relevantIds=new Set((deleted?state.deleted:state.rows).filter(r=>inDepartment(r,state.department)).map(r=>r.collection_id));
+  const relevantIds=new Set((deleted?state.deleted:state.rows).filter(r=>inDepartment(r,state.department)&&inInbox(r)).map(r=>r.collection_id));
   const worksheets=state.collections.filter(c=>relevantIds.has(c.id));
-  const title = deleted ? 'Deleted documents' : state.department==='__unassigned__' ? 'Unassigned documents' : state.department ? state.department+' documents' : editor() ? 'Document register' : 'Assigned documents';
+  const title = deleted ? 'Deleted documents' : state.inboxScope==='personal' ? 'My assignments' : state.inboxScope==='department' ? 'Department inbox' : state.department==='__unassigned__' ? 'Unassigned documents' : state.department ? state.department+' documents' : editor() ? 'Document register' : 'Assigned documents';
   const actionsMarkup = deleted ? '' : editor() ?
     button('New document', 'new', '', 'plus') + button('Import file', 'import', 'primary', 'upload') :
     button('Refresh', 'refresh', '', 'refresh');
@@ -352,7 +366,7 @@ function drawRows() {
     '<td class="row-number-cell"><span class="row-number '+(selection.has(r.id)?'picked':'')+'">'+esc(rowNumber(r,index))+'</span></td>'+
     fields.map(column => '<td'+(column===r.mappings.subject?' class="cell-subject"':column===r.mappings.reference?' class="ref"':'')+'>'+
       (column==='MOV 1'||column==='MOV 2'?movMarkup(r,column):column===r.mappings.status?pill(statusOf(r)):column===r.mappings.assigned?esc(r.cells[column]||'')+(r.assigned_staff?'<small class="assigned-person">'+esc(r.assigned_staff.name)+'</small>':''):
-       column===r.mappings.subject&&!deleted&&!picking?'<button class="subject-link" data-record="'+r.id+'">'+esc(r.cells[column]||'')+'</button>':esc(r.cells[column]||''))+'</td>').join('')+
+       column===r.mappings.subject?'<div class="document-subject">'+newBadge(r)+( !deleted&&!picking?'<button class="subject-link" data-record="'+r.id+'">'+esc(r.cells[column]||'')+'</button>':esc(r.cells[column]||''))+'</div>':esc(r.cells[column]||''))+'</td>').join('')+
     '<td class="action-cell">'+(picking?'<span class="row-prompt">'+(selection.has(r.id)?'Selected':'Click row to select')+'</span>':deleted?'<div class="row-actions"><button class="btn edit-button" data-restore="'+r.id+'">Restore</button>'+(state.user.role==='admin'?'<button class="btn danger" data-purge-record="'+r.id+'" title="Delete permanently">Delete</button>':'')+'</div>':
       '<div class="row-actions"><button class="btn view-button" data-record="'+r.id+'" aria-label="View '+esc(refOf(r))+'">View</button>'+(state.user.role!=='viewer'?'<button class="btn edit-button" data-edit-record="'+r.id+'" aria-label="Edit '+esc(refOf(r))+'">Edit</button>':'')+'</div>')+'</td></tr>').join('') ||
     '<tr><td colspan="'+(fields.length+2)+'"><div class="empty"><h2>No matching documents</h2><p>Try another search or clear the filters.</p></div></td></tr>';
@@ -671,7 +685,7 @@ function renderRecord(tab = 'details') {
   const writable = new Set(deleted || !state.editing ? [] : r.editable_columns.filter(c=>!isRowNumber(c)));
   const tabs = [['details','Details & routing'], ['files','Files & MOVs'], ['history','Activity history']];
   const banner = '<div class="doc-banner"><span class="doc-symbol">' + icon('file') + '</span><div><strong>' +
-    esc(subjectOf(r)) + '</strong><p>' + esc(refOf(r)) + ' · ' + esc(r.collection_name) + '</p></div>' + pill(statusOf(r)) + '</div>';
+    esc(subjectOf(r)) + '</strong><p>' + esc(refOf(r)) + ' · ' + esc(r.collection_name) + '</p></div><div class="document-flags">'+newBadge(r)+pill(statusOf(r))+'</div></div>';
   const referenceNote = '<div class="reference-band"><span>Reference no.</span><strong>' + esc(refOf(r)) +
     '</strong><small>Automatically generated for new records. Existing imported references are retained.</small></div>';
   const fields = '<form id="recordForm" class="grid document-fields">' + referenceNote + [...r.columns.filter(isRowNumber),...r.columns.filter(c=>!isRowNumber(c))].map(column => {
@@ -702,7 +716,7 @@ function renderRecord(tab = 'details') {
       '" data-tab="' + key + '">' + label + (key === 'files' ? ' (' + r.files.length + ')' : '') + '</button>').join('') + '</div>' +
     (tab === 'details' ? fields + sourceRecordInfo(r) + attachmentSummary(r) : tab === 'files' ? files : history),
     (editor() && !deleted && state.editing ? button('Delete', 'delete', 'danger', 'trash') : '') +
-    (state.user.role==='staff' && !deleted && statusOf(r) === 'For routing' && mapped(r,'assigned') && r.mappings.status ?
+    (state.user.role==='staff' && !deleted && r.is_new ?
       button('Acknowledge receipt', 'acknowledge', 'primary', 'check') : '') +
     button('Print slip', 'printslip', '', 'print') +
     '<a class="btn" href="/api/docx/' + r.id + '">' + icon('download') + 'Word template</a>' +
@@ -730,7 +744,8 @@ function renderRecord(tab = 'details') {
   };
 }
 /* Optional local source import, reviewed before registration. */
-function newDocument() {
+async function newDocument() {
+  [state.departments,state.directory]=await Promise.all([api('/api/departments'),api('/api/directory')]);
   state.dirty = false;
   const collection = state.collections.find(c => c.id === state.collection);
   const mappings = collection?.mappings || {hard:'Hard Copy Routed', reference:'Ref. No.', subject:'Subject', assigned:'Assigned to', action:'Requested Actions', status:'Status'};
@@ -952,7 +967,7 @@ async function renderAccounts() {
   const codes=[...new Set([...state.departments.map(d=>d.code),...accounts.map(u=>u.department)])];
   if (accountDepartment && !codes.includes(accountDepartment)) accountDepartment='';
   $('content').innerHTML = pageHeading('Account management', 'Manage individual staff accounts, department membership, and access.',
-    button('Add staff account', 'addaccount', 'primary', 'plus')) +
+    button('Add new department','adddepartment','','folder')+button('Add staff account', 'addaccount', 'primary', 'plus')) +
     '<section class="card"><div class="card-head"><div><h2>Office accounts</h2><small>Archive staff accounts to remove access while preserving document history.</small></div></div>' +
     '<div class="account-scopes" role="group" aria-label="Account list"><button type="button" data-account-scope="current" aria-pressed="'+!archived+'">Current accounts <span>'+currentCount+'</span></button>' +
     '<button type="button" data-account-scope="archived" aria-pressed="'+archived+'">Archived accounts <span>'+(accounts.length-currentCount)+'</span></button></div>' +
@@ -967,7 +982,7 @@ function accountRows(rows,archived) {
   return rows.map(u => '<tr><td><strong class="ref">' + esc(u.username) + '</strong>'+(u.id===state.user.id?'<small class="account-you">Your account</small>':'')+'</td><td>' + esc(u.name) + '<small class="account-detail">' + esc(u.department) + ' · ' + esc(u.account_type) + '</small></td><td>' +
       esc(u.role === 'admin' ? 'ORD administration' : u.role === 'staff' ? 'Assigned documents' : u.role === 'records' ? 'Records administration' : 'Read only') +
       '<small class="account-detail">' + (archived ? 'Archived · '+esc(formatDate(u.archived_at)) : u.active ? 'Active' : 'Disabled') + '</small></td><td><div class="account-actions">'+
-      (archived ? '<button class="btn view-button" data-restore-account="'+u.id+'">Restore account</button>' :
+      (archived ? '<button class="btn view-button" data-restore-account="'+u.id+'">Restore account</button>'+(u.account_type==='individual'?'<button class="btn danger" data-purge-account="'+u.id+'">Delete permanently</button>':'') :
       '<button class="btn view-button" data-edit-account="' + u.id + '">Edit</button><button class="btn" data-recovery="' + u.id + '">Recovery code</button>'+
       (u.id!==state.user.id?'<button class="btn danger" data-archive-account="'+u.id+'">Archive</button>':''))+'</div></td></tr>').join('');
 }
@@ -1004,21 +1019,47 @@ async function restoreAccount(id) {
   await api('/api/account-restore',{id:Number(id)});
   accountScope='current';await renderAccounts();toast('Account restored as disabled. Choose Edit to review and enable access.');
 }
-function addAccount(department = accountDepartment || state.user.department) {
+async function addAccount(department = accountDepartment || state.user.department) {
+  state.departments=await api('/api/departments');
   modal('Add staff account', 'Create a personal login and assign its department and access.',
     '<form id="accountForm" class="grid"><label>Username<input name="username" required placeholder="e.g. maria.santos"></label>' +
     '<label>Staff full name<input name="name" required placeholder="Full name"></label>' +
-    '<label>Department code<input name="department" required value="'+esc(department)+'" list="departmentCodes" placeholder="ORD, AFS, OPS"><datalist id="departmentCodes">'+state.departments.map(d=>'<option value="'+esc(d.code)+'"></option>').join('')+'</datalist></label>' +
-    '<label>Access<select name="role">' + opts([['staff','Department staff'], ['records','Records officer'], ['viewer','Office reviewer (read all)'], ['admin','Administrator']]) + '</select></label>' +
-    '<div class="full">' + passwordInput('password', 'Initial password', 'new-password') + '</div></form>',
-    button('Cancel', 'close') + '<button form="accountForm" class="btn primary">Create staff account</button>','medium');
+    '<label>Department<select name="department" required>'+opts(state.departments.map(d=>[d.code,d.code+' — '+d.name]),department)+'</select></label>' +
+    '<label>Access<select name="role">' + opts([['staff','Department staff'], ['records','Records officer'], ['viewer','Department reviewer (read only)'], ['admin','Administrator']]) + '</select></label>' +
+    passwordInput('password', 'Initial password', 'new-password') + '<p class="account-field-help">Use at least 8 characters. A generated recovery code will appear after account creation.</p></form>',
+    button('Cancel', 'close') + '<button form="accountForm" class="btn primary">Create staff account</button>','account');
   $('accountForm').onsubmit = async e => {
     e.preventDefault();
     try {
       const body = Object.fromEntries(new FormData(e.target));
       const result = await api('/api/users', body);
-      await renderAccounts(); recoveryCodes({[body.username.toUpperCase()]:result.recovery_code});
+      await loadData();await renderAccounts(); recoveryCodes({[body.username.toUpperCase()]:result.recovery_code});
     } catch (err) { showError(err); }
+  };
+}
+function addDepartment() {
+  modal('Add new department','The new department becomes available in staff accounts and document assignments.',
+    '<form id="departmentForm" class="stack"><label>Department code<input name="code" required minlength="2" maxlength="20" pattern="[A-Za-z][A-Za-z0-9_-]{1,19}" placeholder="e.g. ICT"></label><label>Department name<input name="name" required minlength="2" maxlength="120" placeholder="Official department name"></label></form>',
+    button('Cancel','close')+'<button form="departmentForm" class="btn primary">Add department</button>','compact');
+  $('departmentForm').onsubmit=async e=>{
+    e.preventDefault();e.submitter.disabled=true;
+    try {
+      const result=await api('/api/departments',Object.fromEntries(new FormData(e.target)));
+      accountDepartment=result.code;await loadData();await renderAccounts();$('dialog').close();toast('Department added. It is now available for staff and document assignments.');
+    } catch(error) {showError(error);e.submitter.disabled=false;}
+  };
+}
+function purgeAccount(id) {
+  const u=accounts.find(u=>u.id===Number(id));
+  modal('Permanently delete staff account?',u.username,
+    '<p class="error">This permanently removes the archived login and profile. It cannot be restored. Document history is retained. Personal documents stay restricted until an authorized officer reassigns them.</p><form id="purgeAccountForm" class="stack"><label>Type '+esc(u.username)+' to confirm<input name="confirmation" required autocomplete="off" spellcheck="false"></label></form>',
+    button('Cancel','close')+'<button form="purgeAccountForm" class="btn danger">Delete permanently</button>','compact');
+  $('purgeAccountForm').onsubmit=async e=>{
+    e.preventDefault();e.submitter.disabled=true;
+    try {
+      await api('/api/account-purge',{id:u.id,confirmation:e.target.elements.confirmation.value});
+      await loadData();await renderAccounts();$('dialog').close();toast('Staff login and profile permanently deleted. Document history retained.');
+    } catch(error) {showError(error);e.submitter.disabled=false;}
   };
 }
 function editAccount(id) {
@@ -1026,8 +1067,8 @@ function editAccount(id) {
   modal('Edit staff account', account.username,
     '<form id="editAccountForm" class="grid"><label>Username<input name="username" required value="' + esc(account.username) +
     '"></label><label>Full name<input name="name" required value="' + esc(account.name) +
-    '"></label><label>Department code<input name="department" required value="' + esc(account.department) +
-    '"></label><label>Access<select name="role">' +
+    '"></label><label>Department<select name="department" required>'+opts(state.departments.map(d=>[d.code,d.code+' — '+d.name]),account.department)+
+    '</select></label><label>Access<select name="role">' +
     opts([['admin','ORD administration'], ['records','Records administration'], ['staff','Assigned documents'], ['viewer','Read only']], account.role) +
     '</select></label><label>Account status<select name="active">' +
     opts([['1','Active'], ['0','Disabled']], account.active ? '1' : '0') +
@@ -1072,11 +1113,11 @@ function guide() {
     '<div class="help"><ol><li><strong>ORD logs in and imports a file.</strong> Choose the existing Excel matrix or incoming document. Check the preview and confirm the import.</li>' +
     '<li><strong>Start from an email or file.</strong> New document &gt; Import email or file fills available details from a saved EML/MSG, PDF, Word document, Excel/CSV or another source. Review the subject and routing before registering. Emails retain their message and attachments; Excel/CSV lets you choose one source row.</li>' +
     '<li><strong>Review and route.</strong> In Document register, choose View to read a record or Edit to update it. Check its subject and reference number, choose a department, optionally select one of its staff, choose the requested action, then save. Expand Departments to view each department’s documents.</li>' +
-    '<li><strong>The department acts.</strong> Each staff member logs in with their own username, opens Assigned documents, records its Action Taken using NCSC actions 1–9 or Other / specify, and adds MOV files or links.</li>' +
+    '<li><strong>The department acts.</strong> Staff see My assignments and the shared Department inbox separately. Personal assignments are visible only to the assigned account, administrators, ORD and records officers. Use Acknowledge receipt to remove your New badge; opening a document does not acknowledge it. Record Action Taken and attach MOVs as needed.</li>' +
     '<li><strong>Dashboard and accounts.</strong> Department summary opens each department’s documents. The six cards filter saved statuses, including For Comment and For Signature. Account management groups current and archived accounts by department, with search and department filtering.</li><li><strong>Change password.</strong> In Settings, enter your current password, generated recovery code, new password and confirmation. Save the replacement code displayed after success. If you lost your code, request a replacement from the administrator. Other sessions for your account will end.</li>' +
-    '<li><strong>Update and print.</strong> Save the status. Print slip automatically opens the browser print dialog using the supplied Word template. Use Select documents and click rows to print different documents on a shared NCSC routing sheet. The host needs Microsoft Word or LibreOffice.</li>' +
+    '<li><strong>Update and print.</strong> Save the status. Print slip automatically opens the browser print dialog using the supplied Word template. Use Select documents and click rows to print different documents on a shared NCSC routing sheet. For two or more selected documents, review/edit the print-only subject, date, time and routing text, then choose Print shared slip. Saved records and references stay unchanged. The host needs Microsoft Word or LibreOffice.</li>' +
     '<li><strong>Delete and restore.</strong> Records officers can move individual or selected documents to Deleted documents. Restore returns them with their files and history. Use Select documents and Select all shown in Deleted documents to restore a batch. Only administrators can delete permanently; a confirmation is required. Imported files also supports Select files and Select all; deleting a source moves its active rows to Deleted documents.</li>' +
-    '<li><strong>Retire staff access.</strong> Administrators can Archive an account in Account management. The account loses access while its past activity remains identifiable. Restore from Archived accounts, then Edit to enable it.</li>' +
+    '<li><strong>Retire staff access.</strong> Administrators can Archive an account in Account management. Restore from Archived accounts, then Edit to enable it. Administrators can permanently delete archived individual logins after confirmation; history and private assignments remain protected.</li>' +
     '<li><strong>Print a readable matrix.</strong> Print matrix opens the print dialog in A4 landscape. Routing and follow-up fields use separate sections with the same reference numbers. Extra imported columns continue in further sections. Table entries consistently use Arial 10 pt.</li></ol>' +
     '<p class="notice">Readable PDFs can produce tables or page text. Scanned pages require manual encoding. Review the preview for every new file layout.</p>' +
     '<p style="margin-top:15px">Tracking columns stay in the same order for every worksheet. Additional imported fields follow them. New reference numbers are automatic. Files &amp; MOVs lets you choose MOV 1 or MOV 2 for each upload.</p></div>',
@@ -1112,9 +1153,13 @@ document.addEventListener('click', async e => {
   try {
     if (target.dataset.removeSelected) {documentSelection().delete(target.dataset.removeSelected);drawRows();return;}
     if (target.dataset.department) {
+      state.inboxScope=state.user.role==='staff'?'department':'all';
       state.department=target.dataset.department;state.departmentsOpen=true;state.page='documents';state.query='';state.status='';state.collection='';render();return;
     }
     if (target.dataset.deleteImport) return deleteImportedSources([target.dataset.deleteImport]);
+    if (target.dataset.inboxScope) {
+      state.inboxScope=target.dataset.inboxScope;state.department='';state.page='documents';state.collection='';state.status='';state.query='';render();return;
+    }
     if (target.dataset.reveal) {
       const input = target.closest('form').elements[target.dataset.reveal];
       input.type = input.type === 'password' ? 'text' : 'password';
@@ -1124,11 +1169,12 @@ document.addEventListener('click', async e => {
       return;
     }
     if (target.dataset.page) {
+      state.inboxScope='all';
       state.page = target.dataset.page; if (['accounts','deleted'].includes(state.page)) state.settingsOpen=true; state.query = ''; state.status = ''; state.collection = '';state.department='';
       render(); return;
     }
     if (target.hasAttribute('data-status')) {
-      if (state.page!=='documents') state.department='';
+      if (state.page!=='documents') {state.department='';state.inboxScope='all';}
       state.status = target.dataset.status; state.page = 'documents'; state.collection = ''; render(); return;
     }
     if (target.dataset.record) return await openRecord(target.dataset.record);
@@ -1144,6 +1190,7 @@ document.addEventListener('click', async e => {
     }
     if (target.dataset.map) return mappingDialog(target.dataset.map);
     if (target.dataset.editAccount) return editAccount(target.dataset.editAccount);
+    if (target.dataset.purgeAccount) return purgeAccount(target.dataset.purgeAccount);
     if (target.dataset.addAccountDepartment) return addAccount(target.dataset.addAccountDepartment);
     if (target.dataset.accountScope) {accountScope=target.dataset.accountScope;return await renderAccounts();}
     if (target.dataset.archiveAccount) return archiveAccount(target.dataset.archiveAccount);
@@ -1170,6 +1217,7 @@ document.addEventListener('click', async e => {
       case 'logout':
         await api('/api/logout', {}); state.selected.clear(); state.selecting=false; state.collection = ''; state.page = 'dashboard'; state.settingsOpen = false;
         state.department='';state.departmentsOpen=false;state.deletedSelected.clear();state.importSelected.clear();state.deletedSelecting=false;state.importSelecting=false;
+        state.inboxScope='all';
         accountScope='current';accountDepartment='';accountQuery='';expandedAccountDepartments.clear();
         $('dialog').close(); await start(); break;
       case 'forgot': forgotPassword(); break;
@@ -1215,7 +1263,7 @@ document.addEventListener('click', async e => {
         break;
       }
       case 'confirmimport': await confirmImport(target); break;
-      case 'new': newDocument(); break;
+      case 'new': await newDocument(); break;
       case 'sourcefile': $('newSourceFile').click(); break;
       case 'removesource':
         captureNewDocument();state.newDraft.source=null;state.newDraft.auto={};state.newDraft.columns=[...state.newDraft.baseColumns];state.dirty=true;renderNewDocument();toast('Source removed. Review the remaining details.');break;
@@ -1228,7 +1276,7 @@ document.addEventListener('click', async e => {
       case 'acknowledge': {
         const r = state.record;
         if (state.dirty) { toast('Save your changes before acknowledging receipt.'); break; }
-        await api('/api/save', {id:r.id, version:r.version, cells:{...r.cells, [r.mappings.status]:'Received'}});
+        await api('/api/acknowledge', {id:r.id, version:r.version});
         await loadData(); render(); await openRecord(r.id); toast('Receipt acknowledged.');
         break;
       }
@@ -1248,7 +1296,8 @@ document.addEventListener('click', async e => {
         await api('/api/archive', {id:state.record.id, version:state.record.version});
         $('dialog').close(); await loadData(); render(); toast('Document moved to Deleted.'); break;
       case 'password': changePassword(); break;
-      case 'addaccount': addAccount(); break;
+      case 'addaccount': await addAccount(); break;
+      case 'adddepartment': addDepartment(); break;
       case 'guide': guide(); break;
       case 'clear': state.collection = ''; state.query = ''; state.status = ''; renderDocuments(); break;
       case 'refresh': await loadData(); render(); toast('Register refreshed.'); break;
