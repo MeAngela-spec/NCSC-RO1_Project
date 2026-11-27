@@ -1,5 +1,6 @@
 """Short-lived, owner-bound rendered template pages for the native browser print dialog."""
 import re
+import hashlib
 import secrets
 import tempfile
 import threading
@@ -20,6 +21,13 @@ def create(pdf_bytes, owner, record_ids=None):
     import pypdfium2 as pdfium
     with _LOCK:
         _cleanup()
+        records=list(record_ids or [])
+        key=(owner,tuple(records),hashlib.sha256(pdf_bytes).digest())
+        for job in _JOBS.values():
+            if job['key']==key:
+                return {'pages':job['pages'],'expires_in':max(1,int(job['expires']-time.time()))}
+        while len(_JOBS)>=24:
+            oldest=next(iter(_JOBS));_JOBS.pop(oldest)['folder'].cleanup()
         folder=tempfile.TemporaryDirectory(prefix='ncsc-native-print-')
         pages=[]
         try:
@@ -39,9 +47,10 @@ def create(pdf_bytes, owner, record_ids=None):
                     finally:
                         page.close()
             token=secrets.token_hex(24)
-            _JOBS[token]={'owner':owner,'expires':time.time()+_TTL,'folder':folder,'count':len(pages),'records':list(record_ids or [])}
             for page in pages:
                 page['url']=f"/api/print-page/{token}/{page['index']}.png"
+            _JOBS[token]={'owner':owner,'expires':time.time()+_TTL,'folder':folder,'count':len(pages),
+                          'records':records,'key':key,'pages':pages}
             return {'pages':pages,'expires_in':_TTL}
         except Exception:
             folder.cleanup()

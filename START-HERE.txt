@@ -60,7 +60,7 @@ DAILY DOCUMENT FLOW
 4. View a document, choose Edit, set Assigned to and Requested Actions,
    and save. An assigned document becomes Routed automatically.
 5. A staff member signs in and sees Assigned documents for their department.
-6. Acknowledge receipt, enter Action Taken, update status and add MOVs.
+6. Acknowledge document, enter Action Taken, update status and add MOVs.
 7. Save the record. Use Print slip when a paper routing form is needed.
 8. Use Refresh to load colleagues' latest changes.
 9. Choose Select documents, then click the rows you need. Choose
@@ -485,11 +485,11 @@ visible to the assignee, administrators, ORD and records officers; department
 peers and read-only reviewers cannot view them. File, print, export and cached
 print-image requests enforce the same permissions. Refresh loads new work.
 
-New means the signed-in staff member has not acknowledged this assignment.
+New means the personal assignment or shared department inbox has not been acknowledged.
 Opening a document or changing status does not dismiss New. Choose Acknowledge
-receipt in View document. It records your acknowledgement without changing
-For Comment, For Signature or another saved status. Shared documents require
-each staff member to acknowledge independently. Changing assignee, assigned
+document in View document. It records the actor without changing For Comment,
+For Signature or another saved status. One department member acknowledges a
+shared document for that department; other assigned departments remain independent. Changing assignee, assigned
 department or requested action creates a new routing revision to acknowledge.
 
 Account management > Add new department registers a unique code and name.
@@ -513,3 +513,35 @@ print dialog. Edit slip details allows another print-only revision. Nothing
 is saved into the document register. If a selected record changed or access
 was removed, refresh the print selection before continuing. One-document
 individual slips still go directly to printing with their saved details.
+
+VERSION 0.1.7 — REVIEW, RECEIPT AND PRINTING
+- Staff is the collective term for employees. Staff navigation uses My assignments
+  and Department inbox; the Departments dropdown is retained for office oversight.
+- Acknowledge document records who received the assignment without changing status.
+  One member acknowledges a shared document for their department. Other assigned
+  departments acknowledge separately. Personal assignments remain per assignee.
+  Opening a record does not acknowledge it. Refresh to see colleagues' acknowledgements.
+- For Comment displays Comments / recommendations in View/Edit and New document.
+  Save changes to retain text and attributed history. Comments remain visible when
+  the status moves on. For Signature remains a paper/ink process; the officer
+  updates status after signing. There is no automatic signature or completion.
+- Choose Year on Dashboard or beside document filters (including Deleted documents).
+  Counts, rows, matrix print and ordinary exports follow this filter. The year uses
+  the RO1 register reference first, then routed date, then registration year.
+  All years shows the complete accessible history. Explicit selected rows remain
+  selected across filters; review the selection tray before printing/exporting.
+- Drop a source on the register/import area, import dialog, or New document source
+  panel. Review before importing/registering. One source file is processed at a time.
+  Files & MOVs accepts multiple dropped/chosen attachments, uploaded in sequence
+  to the chosen MOV slot. Each file is limited to 25 MB. Saved email attachments
+  continue to import with their source. Links are entered as links, not file drops.
+- Slip rows use centered Arial 10 pt with space above/below and minimum row heights.
+  Long entries continue on another sheet. The supplied logo, headings, column widths
+  and complete action legend remain. NOTES / REMARKS / ACTIONS uses Action Taken,
+  never Requested Actions. Combined slips also identify each document by its reference
+  and subject; their editable notes default to Action Taken.
+- Repeated Word previews, formatted previews and print pages reuse short-lived,
+  bounded caches. Changing content generates a new result. Every access is checked
+  against current permissions. PDF/images use their original bytes. Speed depends
+  on file size, first conversion, host hardware and LAN; 1–2 seconds is a target,
+  not a guaranteed limit for every file. External links depend on their own services.

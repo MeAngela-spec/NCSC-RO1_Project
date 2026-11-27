@@ -10,7 +10,10 @@ flows, NCSC assets, routing-slip template and sample files are retained.
 - Individual staff logins, personal/shared document access and grouped accounts.
 - Persistent department registration and permanent archived-login removal that
   preserves audit history and keeps private assignments restricted.
-- Separate staff inbox reports and per-person New/acknowledgement tracking.
+- Separate staff inbox reports, department-level shared acknowledgements and private-assignment acknowledgements.
+- Year filters on dashboard/register/deleted documents, with retained review comments and attributed history.
+- Drag-and-drop source import and multiple supporting-file uploads.
+- Centered 10 pt routing entries, Action Taken remarks, and bounded preview/print caches.
 - Department dashboard summaries and six status counters with matching filters.
 - Sequential yearly references in the format `RO1-MEMO-YYYY-00001`.
 - Departments sidebar folders with document counts; optional staff assignment

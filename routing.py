@@ -2,6 +2,7 @@
 import copy
 import io
 import math
+import textwrap
 from datetime import datetime
 from zipfile import ZipFile
 from lxml import etree
@@ -10,6 +11,7 @@ NS = {"w":"http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 W = "{"+NS["w"]+"}"
 FONT = "Arial"
 FONT_SIZE = "20"  # OOXML half points: 10 pt for every filled field.
+ROW_BUDGET = 330  # Leave room for the original letterhead, table headings and complete action legend.
 
 def printed_date(value):
     text = str(value or "")
@@ -41,6 +43,10 @@ def put_cell(cell, value, bold=False, align=None):
         spacing = etree.SubElement(pprops, W+"spacing")
     for key, val in {"before":"0", "after":"0", "line":"240", "lineRule":"auto"}.items():
         spacing.set(W+key, val)
+    snap = pprops.find("w:snapToGrid",NS)
+    if snap is None:
+        snap=etree.SubElement(pprops,W+"snapToGrid")
+    snap.set(W+"val","0")
     if align:
         justify = pprops.find("w:jc", NS)
         if justify is None:
@@ -69,12 +75,48 @@ def put_cell(cell, value, bold=False, align=None):
 
 def _height(values, widths):
     # Use the same 10 pt font on every row; paginate instead of shrinking text.
-    lines = max(sum(max(1, math.ceil(len(line)/max(4, width/5))) for line in value.split("\n"))
+    lines = max(sum(max(1, math.ceil(len(line)/max(4, (width-10)/5.5))) for line in value.split("\n"))
                 for value, width in zip(values, widths))
-    return max(36, lines*12+8)
+    return max(48, lines*13+12)
+
+def _row_parts(values, widths):
+    """Continue long entries on another sheet rather than reduce the common font."""
+    wrapped = [[part for line in value.split("\n") for part in
+                (textwrap.wrap(line,width=max(4,int((width-10)/5.5)),replace_whitespace=False,
+                               drop_whitespace=False) or [""])] for value,width in zip(values,widths)]
+    for offset in range(0,max(map(len,wrapped)),24):
+        yield ["\n".join(lines[offset:offset+24]) if len(lines)>24 else values[index] if index!=5 or offset==0 else ""
+               for index,lines in enumerate(wrapped)]
+
+def format_row(row, values, widths):
+    props = row.find("w:trPr",NS)
+    if props is None:
+        props=etree.Element(W+"trPr");row.insert(0,props)
+    height = props.find("w:trHeight",NS)
+    if height is None:
+        height=etree.SubElement(props,W+"trHeight")
+    height.set(W+"val",str(int(_height(values,widths)*20)))
+    height.set(W+"hRule","atLeast")
+    if props.find("w:cantSplit",NS) is None:
+        etree.SubElement(props,W+"cantSplit")
+    for cell,text in zip(row.findall("w:tc",NS),values):
+        put_cell(cell,text,align="center")
+        cell_props=cell.find("w:tcPr",NS)
+        valign=cell_props.find("w:vAlign",NS)
+        if valign is None:
+            valign=etree.SubElement(cell_props,W+"vAlign")
+        valign.set(W+"val","center")
+        margins=cell_props.find("w:tcMar",NS)
+        if margins is None:
+            margins=etree.SubElement(cell_props,W+"tcMar")
+        for side in ("top","bottom","left","right"):
+            item=margins.find("w:"+side,NS)
+            if item is None:
+                item=etree.SubElement(margins,W+side)
+            item.set(W+"w","80");item.set(W+"type","dxa")
 
 
-def combined_sheet(template, rows, subject="SELECTED DOCUMENTS"):
+def combined_sheet(template, rows, subject="SELECTED DOCUMENTS", reference=None):
     """One selected document per row, sharing each original NCSC sheet."""
     with ZipFile(template) as source:
         root = etree.fromstring(source.read("word/document.xml"))
@@ -87,12 +129,13 @@ def combined_sheet(template, rows, subject="SELECTED DOCUMENTS"):
         pages, current, used = [], [], 0
         for row in rows:
             values = [row.get(key, "") for key in ("from", "sign", "to", "date", "time", "note", "received")]
-            height = _height(values, widths)
-            if current and (used+height > 390 or len(current) >= 11):
-                pages.append(current)
-                current, used = [], 0
-            current.append(values)
-            used += height
+            for fields in _row_parts(values,widths):
+                height = _height(fields, widths)
+                if current and (used+height > ROW_BUDGET or len(current) >= 6):
+                    pages.append(current)
+                    current, used = [], 0
+                current.append(fields)
+                used += height
         if current:
             pages.append(current)
         for child in list(body):
@@ -107,7 +150,7 @@ def combined_sheet(template, rows, subject="SELECTED DOCUMENTS"):
             tables = [child for child in page if child.tag == W+"tbl"]
             heads = tables[0].findall("w:tr", NS)[1].findall("w:tc", NS)
             put_cell(heads[0], "SUBJECT  : "+subject, bold=True)
-            put_cell(heads[1], f"BATCH  : {index+1} / {len(pages)}", bold=True)
+            put_cell(heads[1], "DRN  : "+reference if reference is not None else f"BATCH  : {index+1} / {len(pages)}", bold=True)
             data_table = tables[1]
             existing = data_table.findall("w:tr", NS)
             for header in existing[:2]:
@@ -121,9 +164,14 @@ def combined_sheet(template, rows, subject="SELECTED DOCUMENTS"):
                 data_table.remove(old)
             for fields in values:
                 new = copy.deepcopy(model)
-                for column, (cell, text) in enumerate(zip(new.findall("w:tc", NS), fields)):
-                    put_cell(cell, text, align="left" if column == 5 else "center")
+                format_row(new,fields,widths)
                 data_table.append(new)
+            if reference is not None:
+                used=sum(_height(fields,widths) for fields in values)
+                while used+48<=ROW_BUDGET:
+                    blank=copy.deepcopy(model)
+                    format_row(blank,[""]*7,widths)
+                    data_table.append(blank);used+=48
             for child in page:
                 body.insert(body.index(section), child)
         output = io.BytesIO()

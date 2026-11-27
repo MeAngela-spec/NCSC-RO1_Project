@@ -29,6 +29,7 @@ from email.parser import BytesParser
 from email.policy import default
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from render_cache import RenderCache
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "vendor"))
@@ -43,6 +44,7 @@ DB = DATA / "register.sqlite3"
 LOCK = threading.Lock()
 SESSIONS = {}
 LOGIN_ATTEMPTS = {}
+RENDER_CACHE = RenderCache()
 DEPARTMENTS = {"ORD": "Office of the Regional Director", "AFS": "Administrative and Finance Section", "OPS": "Operations"}
 ACTIONS = ["Approved", "Disapproved", "Request Initial/Signature", "Appropriate Staff Action",
            "Comment/Recommendation", "Rewrite/Redraft", "For Reference/Information",
@@ -114,6 +116,8 @@ def init():
             c.execute("ALTER TABLE records ADD COLUMN assigned_user_id INTEGER REFERENCES users(id)")
         if "routing_revision" not in record_columns:
             c.execute("ALTER TABLE records ADD COLUMN routing_revision INTEGER NOT NULL DEFAULT 1")
+        if "comment_text" not in record_columns:
+            c.execute("ALTER TABLE records ADD COLUMN comment_text TEXT NOT NULL DEFAULT ''")
         file_columns = {row["name"] for row in c.execute("PRAGMA table_info(files)")}
         if "slot" not in file_columns:
             c.execute("ALTER TABLE files ADD COLUMN slot INTEGER NOT NULL DEFAULT 1")
@@ -139,7 +143,17 @@ def init():
             CREATE TABLE IF NOT EXISTS acknowledgements(record_id TEXT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
                 user_id INTEGER NOT NULL REFERENCES users(id), routing_revision INTEGER NOT NULL, at TEXT NOT NULL,
                 PRIMARY KEY(record_id,user_id,routing_revision));
+            CREATE TABLE IF NOT EXISTS department_acknowledgements(record_id TEXT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+                department TEXT NOT NULL, routing_revision INTEGER NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id), at TEXT NOT NULL,
+                PRIMARY KEY(record_id,department,routing_revision));
         """)
+        # Retain prior acknowledgements when upgrading from per-person shared receipts.
+        if not c.execute("SELECT 1 FROM app_metadata WHERE key='shared_acknowledgements_v1'").fetchone():
+            c.execute("""INSERT OR IGNORE INTO department_acknowledgements
+                SELECT a.record_id,UPPER(u.department),a.routing_revision,a.user_id,a.at
+                FROM acknowledgements a JOIN users u ON u.id=a.user_id JOIN records r ON r.id=a.record_id
+                WHERE r.assigned_user_id IS NULL ORDER BY a.at""")
+            c.execute("INSERT INTO app_metadata VALUES('shared_acknowledgements_v1',?)", (now(),))
         for code,name in DEPARTMENTS.items():
             c.execute("INSERT OR IGNORE INTO departments VALUES(?,?,?)", (code,name,now()))
         for row in c.execute("SELECT DISTINCT department FROM users WHERE deleted_at IS NULL").fetchall():
@@ -561,7 +575,21 @@ def get_record(c, rid):
     staff = c.execute("SELECT id,name,username,department,active,archived_at FROM users WHERE id=?",
                       (result["assigned_user_id"],)).fetchone()
     result["assigned_staff"] = dict(staff) if staff else None
+    result["year"] = record_year(result)
     return result
+
+def record_year(record):
+    """Use the register-reference year, then routed date, then registration year."""
+    cells, mapping = record["cells"], record["mappings"]
+    reference = cells.get(mapping.get("reference"), "")
+    match = re.search(r"\bRO1-(?:MEMO-)?((?:19|20|21)\d{2})-", reference, re.I)
+    if match:
+        return match[1]
+    for value in (cells.get(mapping.get("hard"), ""), record["created"]):
+        match = re.search(r"\b((?:19|20|21)\d{2})\b", value)
+        if match:
+            return match[1]
+    return ""
 
 def department_catalog(c):
     return {row["code"]:row["name"] for row in c.execute("SELECT code,name FROM departments ORDER BY created,code")}
@@ -573,9 +601,16 @@ def require_department(c, code):
     return code
 
 def receipt_state(c, user, record):
-    ack = c.execute("SELECT at FROM acknowledgements WHERE record_id=? AND user_id=? AND routing_revision=?",
-                    (record["id"],user["id"],record["routing_revision"])).fetchone()
+    if record["assigned_user_id"] is None and user["department"].upper() in record["departments"]:
+        ack = c.execute("""SELECT a.at,u.name FROM department_acknowledgements a JOIN users u ON u.id=a.user_id
+            WHERE a.record_id=? AND a.department=? AND a.routing_revision=?""",
+            (record["id"],user["department"].upper(),record["routing_revision"])).fetchone()
+    else:
+        ack = c.execute("""SELECT a.at,u.name FROM acknowledgements a JOIN users u ON u.id=a.user_id
+            WHERE a.record_id=? AND a.user_id=? AND a.routing_revision=?""",
+            (record["id"],user["id"],record["routing_revision"])).fetchone()
     record["acknowledged_at"] = ack["at"] if ack else None
+    record["acknowledged_by"] = ack["name"] if ack else None
     record["is_new"] = user["role"] == "staff" and not record["deleted_at"] and not ack
     return record
 
@@ -651,52 +686,16 @@ def department_access(user, record):
 PRINT_LOCK = threading.Lock()
 
 def filled_docx(record, events):
-    """Fill only content text in a copy of the supplied OOXML template."""
-    from lxml import etree
-    from routing import put_cell, printed_date
-    template = ROOT / "templates/routing-slip.docx"
-    ns = {"w":"http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-    tag = lambda name: "{"+ns["w"]+"}"+name
-    with ZipFile(template) as source:
-        root = etree.fromstring(source.read("word/document.xml"))
-        body = root.find("w:body", ns)
-        original = [copy.deepcopy(child) for child in body if child.tag != tag("sectPr")]
-        section = body.find("w:sectPr", ns)
-        cells, mapping = record["cells"], record["mappings"]
-        routes = [json.loads(entry["route"]) for entry in events if entry["route"]]
-        if not routes:
-            routes = [{"from":"ORD", "to":cells.get(mapping.get("assigned"), ""),
-                       "date":cells.get(mapping.get("hard"), ""), "time":"",
-                       "note":cells.get(mapping.get("action"), ""), "received":""}]
-        capacity = len(original_body_tables(original, ns)[1].findall("w:tr", ns)) - 2
-
-        for child in list(body):
-            if child is not section:
-                body.remove(child)
-        for offset in range(0, len(routes), capacity):
-            if offset:
-                paragraph = etree.Element(tag("p"))
-                run = etree.SubElement(paragraph, tag("r"))
-                etree.SubElement(run, tag("br")).set(tag("type"), "page")
-                body.insert(len(body)-1, paragraph)
-            page = [copy.deepcopy(child) for child in original]
-            tables = original_body_tables(page, ns)
-            heading_cells = tables[0].findall("w:tr", ns)[1].findall("w:tc", ns)
-            put_cell(heading_cells[0], "SUBJECT  : " + cells.get("Subject", ""), bold=True)
-            put_cell(heading_cells[1], "DRN  : " + cells.get("Ref. No.", ""), bold=True)
-            data_rows = tables[1].findall("w:tr", ns)[2:]
-            for index, row in enumerate(data_rows):
-                route = routes[offset+index] if offset+index < len(routes) else {}
-                for cell, key in zip(row.findall("w:tc", ns), ["from","sign","to","date","time","note","received"]):
-                    put_cell(cell, printed_date(route.get(key, "")) if key == "date" else route.get(key, ""))
-            for child in page:
-                body.insert(len(body)-1, child)
-        output = io.BytesIO()
-        with ZipFile(output, "w") as destination:
-            for info in source.infolist():
-                content = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True) if info.filename == "word/document.xml" else source.read(info.filename)
-                destination.writestr(info, content)
-        return output.getvalue()
+    """Fill the official template; center rows and paginate without shrinking text."""
+    from routing import combined_sheet, printed_date
+    cells,mapping=record["cells"],record["mappings"]
+    routes=[json.loads(entry["route"]) for entry in events if entry["route"]]
+    if not routes:
+        routes=[{"from":"ORD","to":cells.get(mapping.get("assigned"),""),
+                 "date":cells.get(mapping.get("hard"),""),"time":""}]
+    routes=[{**route,"date":printed_date(route.get("date","")),"note":route.get("action_taken","")} for route in routes]
+    routes[-1]["note"]=cells.get("Action Taken","")
+    return combined_sheet(ROOT/"templates/routing-slip.docx",routes,cells.get("Subject",""),cells.get("Ref. No.",""))
 
 def original_body_tables(children, namespaces):
     return [child for child in children if child.tag == "{"+namespaces["w"]+"}tbl"]
@@ -719,8 +718,15 @@ def office_converter():
 
 def render_slip_pdf(docx_bytes):
     """Export through the bundled renderer, or the developer's office renderer."""
+    key = ("pdf", hashlib.sha256(docx_bytes).digest())
+    cached = RENDER_CACHE.get(key)
+    if cached is not None:
+        return cached
     converter = office_converter()
     with PRINT_LOCK, tempfile.TemporaryDirectory(prefix="ncsc-print-") as folder:
+        cached = RENDER_CACHE.get(key)
+        if cached is not None:
+            return cached
         directory = Path(folder)
         source = directory / "Routing-Slip.docx"
         destination = directory / "Routing-Slip.pdf"
@@ -743,7 +749,7 @@ def render_slip_pdf(docx_bytes):
             raise ValueError("The office application took too long. Download the Word template to print it.")
         if result.returncode or not destination.is_file():
             raise ValueError("Print preview needs Microsoft Word or LibreOffice on the host. You can download and print the exact filled Word template.")
-        return destination.read_bytes()
+        return RENDER_CACHE.put(key, destination.read_bytes())
 
 def selected_records(c, user, ids, limit=100):
     if not isinstance(ids, list) or not ids or len(ids) > limit:
@@ -795,7 +801,7 @@ def shared_slip_draft(c, records):
         entry = c.execute("SELECT route FROM events WHERE record_id=? AND route IS NOT NULL ORDER BY id DESC LIMIT 1", (record["id"],)).fetchone()
         route = json.loads(entry["route"]) if entry else {}
         cells = record["cells"]
-        note = "\n".join(prefix+cells[key] for key,prefix in [("Requested Actions","Action: "),("Action Taken","Taken: ")] if cells.get(key))
+        note = cells.get("Action Taken", "")
         rows.append({"id":record["id"],"version":record["version"],"reference":cells.get("Ref. No.",""),
                      "subject":cells.get("Subject",""),"from":route.get("from","ORD"),"to":cells.get("Assigned to",""),
                      "date":cells.get("Hard Copy Routed") or route.get("date",""),"time":route.get("time",""),
@@ -873,6 +879,10 @@ def preview_file(file):
         return raw, mimetypes.guess_type(file["name"])[0]
     if extension == ".docx":
         return render_slip_pdf(raw), "application/pdf"
+    key = ("preview", extension, file["name"], hashlib.sha256(raw).digest())
+    cached = RENDER_CACHE.get(key)
+    if cached is not None:
+        return cached, "text/html; charset=utf-8"
     title = html.escape(file["name"])
     styles = "body{font:14px Arial,sans-serif;margin:24px;color:#24314d}h1{font-size:18px;color:#152467}table{border-collapse:collapse;width:100%}td,th{border:1px solid #d9dfed;padding:9px;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}th{background:#152467;color:white}pre{white-space:pre-wrap;overflow-wrap:anywhere}"
     if extension in (".eml", ".msg"):
@@ -896,7 +906,8 @@ def preview_file(file):
         workbook.close()
     else:
         raise ValueError("This file type can be downloaded and opened in its desktop application. Inline preview is available for PDF, images, Word, Excel and text files.")
-    return ("<!doctype html><html><head><meta charset='utf-8'><meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; style-src 'unsafe-inline'\"><style>"+styles+"</style></head><body><h1>"+title+"</h1>"+body+"</body></html>").encode(), "text/html; charset=utf-8"
+    content = ("<!doctype html><html><head><meta charset='utf-8'><meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; style-src 'unsafe-inline'\"><style>"+styles+"</style></head><body><h1>"+title+"</h1>"+body+"</body></html>").encode()
+    return RENDER_CACHE.put(key, content), "text/html; charset=utf-8"
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "NCSC-RO1"
@@ -1275,9 +1286,15 @@ class Handler(BaseHTTPRequestHandler):
                 if r["deleted_at"] or body.get("version") != r["version"]:
                     self.respond(409,{"error":"This document changed. Reopen it before acknowledging."})
                     return
-                added = c.execute("INSERT OR IGNORE INTO acknowledgements VALUES(?,?,?,?)",(r["id"],user["id"],r["routing_revision"],now())).rowcount
+                department = user["department"].upper()
+                shared = r["assigned_user_id"] is None and department in r["departments"]
+                if shared:
+                    added = c.execute("INSERT OR IGNORE INTO department_acknowledgements VALUES(?,?,?,?,?)",
+                        (r["id"],department,r["routing_revision"],user["id"],now())).rowcount
+                else:
+                    added = c.execute("INSERT OR IGNORE INTO acknowledgements VALUES(?,?,?,?)",(r["id"],user["id"],r["routing_revision"],now())).rowcount
                 if added:
-                    event(c,r["id"],user,"Receipt acknowledged")
+                    event(c,r["id"],user,"Document acknowledged" + (" for " + department if shared else ""))
                 self.respond(200,{"ok":True})
             elif path == "/api/departments":
                 if user["role"] != "admin":
@@ -1369,6 +1386,12 @@ class Handler(BaseHTTPRequestHandler):
                 status_column = r["mappings"].get("status")
                 if status_column:
                     cells[status_column] = canonical_status(cells.get(status_column, ""))
+                comment = body.get("comment_text", r["comment_text"])
+                if not isinstance(comment,str) or len(comment)>20000:
+                    raise ValueError("Enter comments of up to 20,000 characters.")
+                if comment != r["comment_text"] and not (r["comment_text"] or
+                    canonical_status(r["cells"].get(status_column,"")) == "For Comment" or cells.get(status_column) == "For Comment"):
+                    raise ValueError("Set the document to For Comment before entering comments.")
                 staff_id = r["assigned_user_id"]
                 if role_editor(user):
                     codes = assigned_departments(new_assigned, department_catalog(c))
@@ -1378,9 +1401,11 @@ class Handler(BaseHTTPRequestHandler):
                     staff_id = assignment_staff(c, body, codes, previous)
                 rerouted = (new_assigned != old_assigned or staff_id != r["assigned_user_id"] or
                             cells.get(r["mappings"].get("action"), "") != r["cells"].get(r["mappings"].get("action"), ""))
-                c.execute("UPDATE records SET cells=?,assigned_user_id=?,version=version+1,routing_revision=routing_revision+? WHERE id=?",
-                          (json.dumps(cells), staff_id, int(rerouted), r["id"]))
+                c.execute("UPDATE records SET cells=?,comment_text=?,assigned_user_id=?,version=version+1,routing_revision=routing_revision+? WHERE id=?",
+                          (json.dumps(cells), comment, staff_id, int(rerouted), r["id"]))
                 event(c, r["id"], user, "Updated record")
+                if comment != r["comment_text"]:
+                    event(c,r["id"],user,"Comments updated: " + (comment or "[cleared]"))
                 if staff_id != r["assigned_user_id"]:
                     name = c.execute("SELECT name FROM users WHERE id=?", (staff_id,)).fetchone() if staff_id else None
                     event(c, r["id"], user, "Assigned staff: " + (name["name"] if name else "Department assignment only"))
@@ -1388,7 +1413,7 @@ class Handler(BaseHTTPRequestHandler):
                     cells.get(r["mappings"].get("action"), "") != r["cells"].get(r["mappings"].get("action"), "")):
                     event(c, r["id"], user, "Routed record", {"from": user["department"], "to": new_assigned,
                           "date": datetime.now().strftime("%m/%d/%Y"), "time": datetime.now().strftime("%I:%M %p"),
-                          "note": cells.get(r["mappings"].get("action"), ""), "received": ""})
+                          "action_taken":cells.get("Action Taken", ""), "received": ""})
                 self.respond(200, {"ok": True})
             elif path == "/api/new":
                 if not role_editor(user):
@@ -1452,9 +1477,14 @@ class Handler(BaseHTTPRequestHandler):
                     cells[status_column] = canonical_status(cells.get(status_column, ""))
                 staff_id = assignment_staff(c, body, assigned_departments(assigned, department_catalog(c)))
                 rid = uuid.uuid4().hex
-                c.execute("INSERT INTO records(id,collection_id,cells,version,created,assigned_user_id) VALUES(?,?,?,?,?,?)",
-                          (rid, cid, json.dumps(cells), 1, now(), staff_id))
+                comment = body.get("comment_text", "")
+                if not isinstance(comment,str) or len(comment)>20000 or (comment and cells.get(status_column)!="For Comment"):
+                    raise ValueError("Comments require For Comment status and must be up to 20,000 characters.")
+                c.execute("INSERT INTO records(id,collection_id,cells,version,created,assigned_user_id,comment_text) VALUES(?,?,?,?,?,?,?)",
+                          (rid, cid, json.dumps(cells), 1, now(), staff_id, comment))
                 event(c, rid, user, "Document registered")
+                if comment:
+                    event(c,rid,user,"Comments added: " + comment)
                 if staff_id:
                     staff_name = c.execute("SELECT name FROM users WHERE id=?", (staff_id,)).fetchone()["name"]
                     event(c, rid, user, "Assigned staff: " + staff_name)
@@ -1472,7 +1502,7 @@ class Handler(BaseHTTPRequestHandler):
                 if assigned:
                     event(c, rid, user, "Routed record", {"from":user["department"], "to":assigned,
                           "date":datetime.now().strftime("%m/%d/%Y"), "time":datetime.now().strftime("%I:%M %p"),
-                          "note":cells.get(mapping.get("action"), ""), "received":""})
+                          "action_taken":cells.get("Action Taken", ""), "received":""})
                 self.respond(200, {"id": rid, "collection": cid})
             elif path == "/api/archive-collections":
                 if not role_editor(user):

@@ -241,7 +241,7 @@ class DepartmentAndBatchTests(unittest.TestCase):
         shared_row = self.record(shared)
         owner.request("/api/acknowledge",{"id":shared,"version":shared_row["version"]})
         self.assertFalse(owner.request("/api/record/"+shared)["is_new"])
-        self.assertTrue(peer.request("/api/record/"+shared)["is_new"])
+        self.assertFalse(peer.request("/api/record/"+shared)["is_new"])
         self.admin.request("/api/save",{"id":private,"version":row["version"],"cells":row["cells"],"assigned_user_id":next(u["id"] for u in self.admin.request('/api/users') if u['username']=='fixture.peer')})
         owner.request("/api/record/"+private,expected=403)
         self.assertTrue(peer.request("/api/record/"+private)["is_new"])
@@ -304,6 +304,87 @@ class DepartmentAndBatchTests(unittest.TestCase):
         self.admin.request('/api/print-job',{'ids':ids,'mode':'combined','draft':stale},expected=400)
         forged={**draft,'rows':[{**draft['rows'][0],'reference':'FAKE'},draft['rows'][1]]}
         self.admin.request('/api/print-job',{'ids':ids,'mode':'combined','draft':forged},expected=400)
+
+    def test_comments_are_private_versioned_and_retained_after_review(self):
+        staff=self.client('fixture.ops')
+        rid=self.admin.request('/api/new',{'cells':{'Subject':'Fictional comments workflow','Assigned to':'OPS'},'assigned_user_id':self.users['fixture.ops']['id']})['id']
+        row=self.record(rid)
+        staff.request('/api/save',{'id':rid,'version':row['version'],'cells':row['cells'],'comment_text':'Too early'},expected=400)
+        staff.request('/api/save',{'id':rid,'version':row['version'],'cells':{**row['cells'],'Status':'For Comment'},'comment_text':'Please verify the attachment.'})
+        updated=self.record(rid)
+        self.assertEqual(updated['comment_text'],'Please verify the attachment.')
+        self.assertTrue(any('Please verify the attachment.' in e['message'] and 'fixture.ops' in e['actor'] for e in updated['events']))
+        self.client('fixture.review').request('/api/record/'+rid,expected=403)
+        staff.request('/api/save',{'id':rid,'version':row['version'],'cells':row['cells'],'comment_text':'Stale edit'},expected=409)
+        staff.request('/api/save',{'id':rid,'version':updated['version'],'cells':{**updated['cells'],'Status':'For Signature'}})
+        final=self.record(rid)
+        self.assertEqual(final['comment_text'],updated['comment_text'])
+        staff.request('/api/acknowledge',{'id':rid,'version':final['version']})
+        self.assertEqual(self.record(rid)['cells']['Status'],'For Signature')
+        self.app.init()
+        self.assertEqual(self.record(rid)['comment_text'],updated['comment_text'])
+
+    def test_shared_acknowledgement_is_per_department_and_routing_revision(self):
+        self.admin.request('/api/users',{'username':'fixture.ackpeer','name':'Fictional shared inbox peer','department':'OPS','role':'staff','password':'fixture-password-123'})
+        ops=self.client('fixture.ops');peer=self.client('fixture.ackpeer');afs=self.client('fixture.afs')
+        rid=self.admin.request('/api/new',{'cells':{'Subject':'Fictional joint receipt','Assigned to':'OPS / AFS'}})['id']
+        row=self.record(rid)
+        self.assertTrue(peer.request('/api/record/'+rid)['is_new'])
+        ops.request('/api/acknowledge',{'id':rid,'version':row['version']})
+        self.assertFalse(peer.request('/api/record/'+rid)['is_new'])
+        self.assertEqual(peer.request('/api/record/'+rid)['acknowledged_by'],'fixture.ops')
+        self.assertTrue(afs.request('/api/record/'+rid)['is_new'])
+        peer.request('/api/acknowledge',{'id':rid,'version':row['version']})
+        self.assertEqual(sum('Document acknowledged for OPS' in e['message'] for e in self.record(rid)['events']),1)
+        afs.request('/api/acknowledge',{'id':rid,'version':row['version']})
+        self.assertFalse(afs.request('/api/record/'+rid)['is_new'])
+        self.admin.request('/api/save',{'id':rid,'version':row['version'],'cells':{**row['cells'],'Requested Actions':'5 - Comment/Recommendation'}})
+        self.assertTrue(peer.request('/api/record/'+rid)['is_new'])
+        self.assertTrue(afs.request('/api/record/'+rid)['is_new'])
+
+    def test_centered_slips_use_action_taken_and_preserve_official_assets(self):
+        from zipfile import ZipFile
+        from lxml import etree
+        from routing import NS,W
+        ids=[self.admin.request('/api/new',{'cells':{'Subject':'Fictional readable slip '+str(i),'Assigned to':'OPS','Requested Actions':'Do not print requested action'}})['id'] for i in range(2)]
+        for rid in ids:
+            row=self.record(rid)
+            self.admin.request('/api/save',{'id':rid,'version':row['version'],'cells':{**row['cells'],'Action Taken':'Reviewed supporting documents and prepared response.'}})
+        draft=self.admin.request('/api/slip-draft',{'ids':ids})
+        self.assertEqual(draft['rows'][0]['note'],'Reviewed supporting documents and prepared response.')
+        with self.app.connect() as c:
+            record=self.app.get_record(c,ids[0]);events=list(c.execute('SELECT * FROM events WHERE record_id=?',(ids[0],)))
+            outputs=[self.app.filled_docx(record,events),self.app.batch_document(c,[self.app.get_record(c,rid) for rid in ids],'combined')]
+        with ZipFile(self.app.ROOT/'templates/routing-slip.docx') as source:
+            for output in outputs:
+                with ZipFile(io.BytesIO(output)) as z:
+                    for name in source.namelist():
+                        if name!='word/document.xml':self.assertEqual(z.read(name),source.read(name),name)
+                    root=etree.fromstring(z.read('word/document.xml'))
+                    text=' '.join(root.xpath('//w:t/text()',namespaces=NS))
+                    self.assertIn('Reviewed supporting documents',text)
+                    self.assertNotIn('Do not print requested action',text)
+                    for table in root.findall('w:body/w:tbl',NS)[1::2]:
+                        for row in table.findall('w:tr',NS)[2:]:
+                            self.assertEqual(row.find('w:trPr/w:trHeight',NS).get(W+'hRule'),'atLeast')
+                            for cell in row.findall('w:tc',NS):
+                                self.assertEqual(cell.find('w:p/w:pPr/w:jc',NS).get(W+'val'),'center')
+                                self.assertEqual(cell.find('w:tcPr/w:vAlign',NS).get(W+'val'),'center')
+                                self.assertEqual(cell.find('w:p/w:r/w:rPr/w:sz',NS).get(W+'val'),'20')
+
+    def test_record_year_and_cached_preview_keep_access_checks(self):
+        imported=self.admin.request('/api/preview',{},upload=('Fictional-years.csv',b'Subject,Ref. No.,Hard Copy Routed,Assigned to\nOlder memo,RO1-MEMO-2024-00001,2026-11-27,OPS\nLegacy memo,External-99,2023-09-30,OPS\n'))
+        result=self.admin.request('/api/import',{'token':imported['token'],'datasets':[{'index':0,'mappings':imported['datasets'][0]['mappings']}]})
+        rows=self.admin.request('/api/records?collection='+result['collections'][0])
+        self.assertEqual([r['year'] for r in rows],['2024','2023'])
+        rid=rows[0]['id'];row=self.record(rid)
+        self.admin.request('/api/attach',{'record':rid,'version':row['version'],'kind':'MOV'},upload=('Fictional.txt',b'Fictional cached preview'))
+        fid=next(f['id'] for f in self.record(rid)['files'] if f['name']=='Fictional.txt')
+        owner=self.client('fixture.ops')
+        self.assertEqual(owner.request('/api/file-preview/'+fid),owner.request('/api/file-preview/'+fid))
+        row=self.record(rid)
+        self.admin.request('/api/save',{'id':rid,'version':row['version'],'cells':{**row['cells'],'Assigned to':'AFS'}})
+        owner.request('/api/file-preview/'+fid,expected=403)
 
 
 if __name__ == "__main__":

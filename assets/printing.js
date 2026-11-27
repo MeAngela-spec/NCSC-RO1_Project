@@ -10,7 +10,7 @@
   const edit=document.createElement('button');edit.className='btn';edit.textContent='Edit slip details';edit.hidden=true;control.after(edit);
   let ready=false, csrf='', draft=null;
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const fields=[['subject','Document subject',500],['from','From',120],['to','Assigned / routed to',200],['date','Date',80],['time','Time',80],['note','Routing notes / actions',3000],['sign','Signature / initials',120],['received','Received by',200]];
+  const fields=[['subject','Document subject',500],['from','From',120],['to','Assigned / routed to',200],['date','Date',80],['time','Time',80],['note','Notes / remarks / actions (Action Taken)',3000],['sign','Signature / initials',120],['received','Received by',200]];
   async function request(path,body) {
     const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)});
     const result=await response.json();if(!response.ok)throw Error(result.error||'The slip could not be prepared.');return result;

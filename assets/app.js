@@ -7,7 +7,7 @@ const state = {
   user: null, csrf: '', collections: [], rows: [], deleted: [], record: null, editing: false,
   page: new URLSearchParams(location.search).get('page') === 'documents' ? 'documents' : 'dashboard', settingsOpen: false, collection: '', query: '', status: '', draft: null, dirty: false,
   selected: new Set(), selecting: false, deletedSelected: new Set(), deletedSelecting: false,
-  importSelected: new Set(), importSelecting: false, departmentsOpen: false, department: '', departments: [], directory: [], inboxScope:'all'
+  importSelected: new Set(), importSelecting: false, departmentsOpen: false, department: '', departments: [], directory: [], inboxScope:'all', year:''
 };
 const departments = {ORD:'Office of the Regional Director', AFS:'Administrative and Finance Section', OPS:'Operations'};
 const mappingLabels = {
@@ -65,6 +65,55 @@ const departmentName = code => code==='__unassigned__' ? 'Documents awaiting dep
 const inDepartment = (record,code) => !code || (code==='__unassigned__' ? !record.departments?.length : record.departments?.includes(code));
 const inInbox = (record,scope=state.inboxScope) => scope==='personal' ? record.assigned_user_id===state.user.id : scope==='department' ? !record.assigned_user_id : true;
 const newBadge = record => record.is_new ? '<span class="new-badge">New</span>' : '';
+const inYear = record => !state.year || String(record.year||String(record.created||'').slice(0,4))===state.year;
+function yearFilter() {
+  const years=[...new Set([...state.rows,...state.deleted].map(r=>String(r.year||String(r.created||'').slice(0,4))).concat(state.year).filter(v=>/^\d{4}$/.test(v)))].sort().reverse();
+  return '<label class="year-filter" title="Reference-number year; otherwise routed date or registration year"><span>Year</span><select data-year-filter aria-label="Filter record year">'+opts([['','All years'],...years],state.year)+'</select></label>';
+}
+function commentField(value,editable,status) {
+  return '<section class="comment-section full" data-comment-section '+(status!=='For Comment'&&!value?'hidden':'')+'><label><span class="field-label">Comments / recommendations</span>'+
+    (editable?'<textarea name="commentText" maxlength="20000" rows="4" placeholder="Enter your comments or recommendations…">'+esc(value)+'</textarea>':'<div class="display-value">'+esc(value||'No comments yet.')+'</div>')+
+    '</label><small>Saved with the editor’s name and time in Activity history. Earlier comments remain available after a status change.</small></section>';
+}
+function updateCommentVisibility() {
+  const form=$('newForm')||$('recordForm');
+  if(!form)return;
+  const draft=$('newForm')?state.newDraft:state.record,section=form.querySelector('[data-comment-section]');
+  if(!section||!draft)return;
+  const index=draft.columns.indexOf(draft.mappings.status),input=form.elements['cell'+index];
+  const status=input?canonicalStatus(formCell(form,index)):canonicalStatus(state.draft?.[draft.mappings.status]);
+  section.hidden=status!=='For Comment'&&!(form.elements.commentText?.value||draft.comment_text);
+}
+function importDropHint() {
+  return '<label class="file-drop import-drop-hint">'+icon('upload')+'<span><strong>Drop a file to import</strong><small>Or choose a file · Review its contents before importing · Up to 25 MB</small></span><input type="file" data-launch-import aria-label="Choose a file to import"><span class="drop-selection" aria-live="polite"></span></label>';
+}
+document.addEventListener('change',e=>{
+  if(e.target.matches('[data-year-filter]')){state.year=e.target.value;state.collection='';render();return;}
+  if(e.target.type!=='file')return;
+  const zone=e.target.closest('.file-drop'),label=zone?.querySelector('.drop-selection');
+  if(label)label.textContent=[...e.target.files].map(f=>f.name).join(' · ');
+  if(e.target.hasAttribute('data-launch-import')&&e.target.files.length)importDialog(e.target.files);
+});
+const fileDrag = e => [...(e.dataTransfer?.types||[])].includes('Files');
+document.addEventListener('dragover',e=>{
+  if(!fileDrag(e))return;e.preventDefault();
+  const zone=e.target.closest('.file-drop');
+  if(zone){zone.classList.add('drag-active');e.dataTransfer.dropEffect='copy';}
+});
+document.addEventListener('dragleave',e=>{
+  const zone=e.target.closest('.file-drop');if(zone&&!zone.contains(e.relatedTarget))zone.classList.remove('drag-active');
+});
+document.addEventListener('drop',e=>{
+  if(!fileDrag(e))return;e.preventDefault();
+  document.querySelectorAll('.drag-active').forEach(zone=>zone.classList.remove('drag-active'));
+  const zone=e.target.closest('.file-drop'),input=zone?.querySelector('input[type=file]'),files=e.dataTransfer.files;
+  if(!input)return toast('Drop files into an import, source or attachment area.');
+  if(input.disabled||zone.querySelector('[data-action=sourcefile]:disabled'))return toast('Wait for the current file operation to finish.');
+  if(!files.length)return toast('Drop files, rather than a folder.');
+  if(!input.multiple&&files.length>1)return toast('Import one source file at a time. Supporting attachments accept multiple files.');
+  if([...files].some(f=>f.size>25*1024*1024))return toast('Each file must be up to 25 MB.');
+  input.files=files;input.dispatchEvent(new Event('change',{bubbles:true}));
+});
 const documentSelection = () => state.page==='deleted' ? state.deletedSelected : state.selected;
 const isSelecting = () => state.page==='deleted' ? state.deletedSelecting : state.selecting;
 const subjectOf = r => mapped(r, 'subject') || Object.values(r.cells).find(Boolean) || 'Untitled document';
@@ -220,11 +269,11 @@ function render() {
     '<div><small>Republic of the Philippines</small><strong>NATIONAL COMMISSION<br>OF SENIOR CITIZENS</strong></div></div>' +
     '<div class="header-right"><span>Document Routing &amp; Tracking · Region I</span><span class="department-chip">' + esc(u.department) + ' workspace</span></div></header>' +
     '<div class="workspace"><aside class="sidebar"><div class="sidebar-navigation"><p class="nav-label">WORKSPACE</p><nav aria-label="Main navigation">' +
-    navItem('dashboard', 'Dashboard', 'grid') + navItem('documents', editor() ? 'Document register' : 'Assigned documents', 'file', state.rows.length) +
-    (u.role==='staff'?'<button class="nav-item '+(state.page==='documents'&&state.inboxScope==='personal'?'active':'')+'" data-inbox-scope="personal">'+icon('user')+'My assignments<span class="count">'+state.rows.filter(r=>inInbox(r,'personal')).length+'</span></button><button class="nav-item '+(state.page==='documents'&&state.inboxScope==='department'?'active':'')+'" data-inbox-scope="department">'+icon('folder')+'Department inbox<span class="count">'+state.rows.filter(r=>inInbox(r,'department')).length+'</span></button>':'')+
-    '<div class="settings-menu"><button type="button" class="nav-item settings-toggle '+(state.department?'active':'')+'" data-action="departments" aria-expanded="'+state.departmentsOpen+'" aria-controls="departmentsMenu">'+icon('folder')+'Departments<span class="nav-chevron">'+icon('chevron')+'</span></button>'+
+    navItem('dashboard', 'Dashboard', 'grid') + navItem('documents', editor() ? 'Document register' : 'Assigned documents', 'file', state.rows.filter(inYear).length) +
+    (u.role==='staff'?'<button class="nav-item '+(state.page==='documents'&&state.inboxScope==='personal'?'active':'')+'" data-inbox-scope="personal">'+icon('user')+'My assignments<span class="count">'+state.rows.filter(r=>inYear(r)&&inInbox(r,'personal')).length+'</span></button><button class="nav-item '+(state.page==='documents'&&state.inboxScope==='department'?'active':'')+'" data-inbox-scope="department">'+icon('folder')+'Department inbox<span class="count">'+state.rows.filter(r=>inYear(r)&&inInbox(r,'department')).length+'</span></button>':'')+
+    (u.role!=='staff'?'<div class="settings-menu"><button type="button" class="nav-item settings-toggle '+(state.department?'active':'')+'" data-action="departments" aria-expanded="'+state.departmentsOpen+'" aria-controls="departmentsMenu">'+icon('folder')+'Departments<span class="nav-chevron">'+icon('chevron')+'</span></button>'+
     '<div id="departmentsMenu" class="settings-items" '+(!state.departmentsOpen?'hidden':'')+'>'+state.departments.map(d=>
-      '<button type="button" class="nav-item '+(state.page==='documents'&&state.department===d.code?'active':'')+'" data-department="'+esc(d.code)+'" title="'+esc(d.name)+'"'+(state.page==='documents'&&state.department===d.code?' aria-current="page"':'')+'>'+icon('file')+esc(d.code)+'<span class="count">'+state.rows.filter(r=>r.departments?.includes(d.code)).length+'</span></button>').join('')+'</div></div>'+
+      '<button type="button" class="nav-item '+(state.page==='documents'&&state.department===d.code?'active':'')+'" data-department="'+esc(d.code)+'" title="'+esc(d.name)+'"'+(state.page==='documents'&&state.department===d.code?' aria-current="page"':'')+'>'+icon('file')+esc(d.code)+'<span class="count">'+state.rows.filter(r=>inYear(r)&&r.departments?.includes(d.code)).length+'</span></button>').join('')+'</div></div>':'')+
     (editor() ? navItem('imports', 'Imported files', 'upload') : '') +
     '<div class="settings-menu"><button type="button" class="nav-item settings-toggle '+(['accounts','deleted'].includes(state.page)?'active':'')+'" data-action="settings" aria-expanded="'+state.settingsOpen+'" aria-controls="settingsMenu">'+icon('settings')+'Settings<span class="nav-chevron">'+icon('chevron')+'</span></button>'+
     '<div id="settingsMenu" class="settings-items" '+(!state.settingsOpen?'hidden':'')+'>'+
@@ -246,7 +295,7 @@ function pageHeading(title, subtitle, actionsMarkup = '') {
     '</h1><p>' + esc(subtitle) + '</p></div><div class="tools">' + actionsMarkup + '</div></div>';
 }
 function statsMarkup() {
-  const rows = state.page==='documents' ? state.rows.filter(r=>inDepartment(r,state.department)&&inInbox(r)) : state.rows;
+  const rows = state.rows.filter(r=>inYear(r)&&(state.page!=='documents'||inDepartment(r,state.department)&&inInbox(r)));
   const stats = [
     ['All documents', rows.length, 'file', '', ''],
     ['For routing', rows.filter(r => statusOf(r) === 'For routing').length, 'clock', 'orange', 'For routing'],
@@ -261,11 +310,11 @@ function statsMarkup() {
 }
 function renderDashboard() {
   if (state.user.role==='staff') return renderStaffDashboard();
-  const summaries=state.departments.map(d=>({code:d.code,name:d.name,count:state.rows.filter(r=>inDepartment(r,d.code)).length}));
-  const unassigned=state.rows.filter(r=>!r.departments?.length).length;
+  const summaries=state.departments.map(d=>({code:d.code,name:d.name,count:state.rows.filter(r=>inYear(r)&&inDepartment(r,d.code)).length}));
+  const unassigned=state.rows.filter(r=>inYear(r)&&!r.departments?.length).length;
   if (unassigned) summaries.push({code:'__unassigned__',name:'Awaiting department assignment',count:unassigned});
   $('content').innerHTML = pageHeading('Dashboard', departmentName(state.user.department),
-    editor() ? button('New document', 'new', '', 'plus') + button('Import file', 'import', 'primary', 'upload') : button('Refresh', 'refresh', '', 'refresh')) +
+    yearFilter()+(editor() ? button('New document', 'new', '', 'plus') + button('Import file', 'import', 'primary', 'upload') : button('Refresh', 'refresh', '', 'refresh'))) +
     statsMarkup() + '<section class="card"><div class="card-head"><div><h2>Department summary</h2><small>Open a department to view its documents.</small></div>' +
     button('View register', 'register', 'link') + '</div>' +
     '<div class="department-summary-grid">'+summaries.map(d=>'<button type="button" class="department-summary" data-department="'+esc(d.code)+'" aria-label="'+esc(d.code==='__unassigned__'?'Unassigned documents':d.code+' Documents')+' — '+d.count+'">'+
@@ -274,9 +323,9 @@ function renderDashboard() {
 }
 function renderStaffDashboard() {
   const sections=[['personal','My assignments','Documents assigned specifically to your account.'],['department','Department inbox','Shared documents with no specific staff assignment.']];
-  $('content').innerHTML=pageHeading('Dashboard',departmentName(state.user.department),button('Refresh','refresh','','refresh'))+statsMarkup()+
+  $('content').innerHTML=pageHeading('Dashboard',departmentName(state.user.department),yearFilter()+button('Refresh','refresh','','refresh'))+statsMarkup()+
     '<div class="staff-inboxes">'+sections.map(([scope,title,description])=>{
-      const rows=state.rows.filter(r=>inInbox(r,scope));
+      const rows=state.rows.filter(r=>inYear(r)&&inInbox(r,scope));
       return '<section class="card"><div class="card-head"><div><h2>'+title+' <span class="inbox-total">'+rows.length+'</span></h2><small>'+description+'</small></div><button class="btn link" data-inbox-scope="'+scope+'">View all</button></div>'+
         '<div class="inbox-summary"><span>'+rows.filter(r=>r.is_new).length+' new · '+rows.filter(r=>statusOf(r)==='Pending').length+' pending · '+rows.filter(r=>statusOf(r)==='Completed').length+' completed</span></div>'+
         (rows.length?'<div class="assignment-list">'+rows.slice(0,5).map(r=>'<button type="button" class="assignment-card" data-record="'+r.id+'">'+newBadge(r)+'<strong>'+esc(subjectOf(r))+'</strong><small>'+esc(refOf(r))+'</small>'+pill(statusOf(r))+'</button>').join('')+'</div>':'<div class="account-group-empty">No '+(scope==='personal'?'personal assignments':'shared department documents')+' yet.</div>')+'</section>';
@@ -294,7 +343,7 @@ function filteredRows() {
   const rows = state.page === 'deleted' ? state.deleted : state.rows;
   const query = state.query.toLowerCase();
   return rows.filter(r => (!state.collection || r.collection_id === state.collection) &&
-    inDepartment(r,state.department) && inInbox(r) &&
+    inYear(r) && inDepartment(r,state.department) && inInbox(r) &&
     (!query || [...Object.values(r.cells),r.source?.filename,r.source?.sender].some(v => String(v || '').toLowerCase().includes(query))) &&
     (!state.status || (state.status === 'active' ? ['Received', 'Pending', 'Ongoing'].includes(statusOf(r)) : state.status==='__other__' ? !statuses.includes(statusOf(r)) : statusOf(r) === state.status)));
 }
@@ -311,7 +360,7 @@ function shownColumns() {
 }
 function renderDocuments() {
   const deleted = state.page === 'deleted';
-  const relevantIds=new Set((deleted?state.deleted:state.rows).filter(r=>inDepartment(r,state.department)&&inInbox(r)).map(r=>r.collection_id));
+  const relevantIds=new Set((deleted?state.deleted:state.rows).filter(r=>inYear(r)&&inDepartment(r,state.department)&&inInbox(r)).map(r=>r.collection_id));
   const worksheets=state.collections.filter(c=>relevantIds.has(c.id));
   const title = deleted ? 'Deleted documents' : state.inboxScope==='personal' ? 'My assignments' : state.inboxScope==='department' ? 'Department inbox' : state.department==='__unassigned__' ? 'Unassigned documents' : state.department ? state.department+' documents' : editor() ? 'Document register' : 'Assigned documents';
   const actionsMarkup = deleted ? '' : editor() ?
@@ -319,7 +368,7 @@ function renderDocuments() {
     button('Refresh', 'refresh', '', 'refresh');
   $('content').innerHTML = pageHeading(title, deleted ? 'Restore documents, or permanently delete them with administrator access.' :
     state.department ? departmentName(state.department) : 'Review, route, and track correspondence across the regional office.', actionsMarkup) +
-    (!deleted ? statsMarkup() : '') + '<section class="card">' +
+    (!deleted ? statsMarkup()+(editor()?importDropHint():'') : '') + '<section class="card">' +
     '<div class="card-head"><div><h2>' + (deleted ? 'Recently deleted' : 'Tracking matrix') +
     '</h2><small>Standard tracking fields stay in a fixed order. Additional imported fields follow.</small></div><div class="tools">' +
     ((deleted ? state.deleted : state.rows).length ? button(isSelecting() ? 'Done selecting' : 'Select documents', 'selectmode', isSelecting() ? 'primary' : '', 'file') +
@@ -327,7 +376,7 @@ function renderDocuments() {
     ((deleted ? state.deleted : state.rows).length ? '<div class="filters"><label class="search">' + icon('search') +
       '<input id="search" type="search" aria-label="Search all columns" placeholder="Search reference, subject, or any detail…" value="' + esc(state.query) + '"></label>' +
       '<select id="collectionFilter" aria-label="Filter worksheet">' + opts([['', 'All worksheets'], ...worksheets.map(c => [c.id, c.name])], state.collection) + '</select>' +
-      '<select id="statusFilter" aria-label="Filter status">' + opts([['', 'All statuses'], ...statuses, ['__other__','Other statuses']], state.status) +
+      yearFilter()+'<select id="statusFilter" aria-label="Filter status">' + opts([['', 'All statuses'], ...statuses, ['__other__','Other statuses']], state.status) +
       '</select>' + button('Refresh', 'refresh', '', 'refresh') + button('Clear', 'clear', 'link') + '</div>' +
       '<div id="selectionBar"></div><div class="table-wrap"><table id="matrix"><thead id="matrixHead"></thead><tbody id="rows"></tbody></table></div>' +
       '<div class="table-foot"><span id="rowCount"></span><span>Scroll horizontally to view all columns</span></div>' : emptyMarkup(deleted)) + '</section>';
@@ -389,7 +438,7 @@ function renderImports() {
   const available=new Set(collections.map(c=>c.id));
   for (const id of state.importSelected) if (!available.has(id)) state.importSelected.delete(id);
   $('content').innerHTML = pageHeading('Imported files', 'Manage the worksheets and tables added to the register.',
-    button('Import file', 'import', 'primary', 'upload')) + '<section class="card">' +
+    button('Import file', 'import', 'primary', 'upload')) + importDropHint()+'<section class="card">' +
     (collections.length ? '<div class="card-head"><div><h2>Source worksheets</h2><small>Delete a worksheet to move its active documents to Deleted documents. Source files and history are retained.</small></div>'+button(state.importSelecting?'Done selecting':'Select files','selectimports',state.importSelecting?'primary':'','file')+'</div>'+
       (state.importSelecting?'<div class="selection-instructions"><span>Click a source card to select it.</span>'+button('Select all','selectallimports','link')+'</div>':'')+
       (state.importSelected.size?'<div class="print-tray"><div class="tray-summary"><strong>'+state.importSelected.size+' source(s) selected</strong><span>'+collections.filter(c=>state.importSelected.has(c.id)).reduce((sum,c)=>sum+c.count,0)+' active documents</span></div><div class="tools">'+button('Delete selected','deleteimports','danger','trash')+button('Clear selection','clearimports','link')+'</div></div>':'')+
@@ -452,21 +501,26 @@ function mappingUI(columns, mappings, prefix) {
 function readMapping(form, prefix) {
   return Object.fromEntries(Object.keys(mappingLabels).map(key => [key, form.elements[prefix + key]?.value || '']));
 }
-function importDialog() {
+function importDialog(files = null) {
   importPreview = null;
   modal('Import a file', 'Add an existing matrix or incoming document to the register.',
     '<div class="steps"><span class="current">Choose file</span><span>Review content</span><span>Import</span></div>' +
-    '<form id="uploadForm" class="stack"><div class="upload-zone">' + icon('upload') +
-    '<strong>Choose the file you want to import</strong><p>Excel, CSV, PDF, Word, text, or a document attachment · Up to 25 MB</p>' +
-    '<input name="file" type="file" aria-label="Choose file to import" required></div>' +
+    '<form id="uploadForm" class="stack"><div class="upload-zone file-drop">' + icon('upload') +
+    '<strong>Drop a file here or choose a file</strong><p>Excel, CSV, PDF, Word, text, or a document attachment · Up to 25 MB</p>' +
+    '<input name="file" type="file" aria-label="Choose file to import" required><small class="drop-selection" aria-live="polite">One source file at a time</small></div>' +
     '<details><summary>Header detection options</summary><div><label>Header row (optional)<input type="number" name="header" min="1" placeholder="Detect automatically"></label></div></details></form>',
     button('Cancel', 'close') + '<button class="btn primary" form="uploadForm">Preview file</button>');
+  if(files){$('uploadForm').elements.file.files=files;$('uploadForm').querySelector('.drop-selection').textContent=files[0].name;}
   $('uploadForm').onsubmit = async e => {
     e.preventDefault();
     e.submitter.disabled = true;
     e.submitter.textContent = 'Reading file…';
     try {
       const fd = new FormData(e.target);
+      const selected=e.target.elements.file.files[0];
+      if(!selected)throw Error('Choose or drop a file first.');
+      if(selected.size>25*1024*1024)throw Error('Choose a file up to 25 MB.');
+      fd.set('file',selected,selected.name);
       importSource = fd.get('file');
       const filename = importSource.name;
       importPreview = await api('/api/preview', fd);
@@ -612,7 +666,7 @@ function fieldControl(column, value, index, record, writable) {
     if (historical && String(historical.id)===String(staffId) && !staff.some(u=>u.id===historical.id) && record.departments?.includes(historical.department.toUpperCase())) staff.push(historical);
     return '<span class="assignment-fields"><span class="assignment-label">Department</span><select name="'+name+'" data-assignment-department aria-label="Assigned department">'+opts(choices,value)+'</select>'+
       '<span class="assignment-label">Specific staff (optional)</span><select name="assignedStaff" aria-label="Assigned staff" '+(!value?'disabled':'')+'>'+opts([['','Department assignment only'],...staff.map(u=>[String(u.id),u.name+' · '+u.username+(u.archived_at||!u.active&&u.active!==undefined?' (inactive)':'')])],String(staffId))+'</select>'+
-      '<small>Choose a department first. Only its active staff are listed. Documents stay visible to that department.</small></span>';
+      '<small>Choose a specific staff member for a private assignment, or leave blank to share with the department.</small></span>';
   }
   if (column === 'Action Taken') {
     const choices = actions.map((a,i)=>(i+1)+' - '+a);
@@ -675,6 +729,7 @@ async function openRecord(id, tab = 'details', editing = false) {
   state.editing = editing;
   state.record = await api('/api/record/' + id);
   state.draft = {...state.record.cells};
+  state.draftComment=state.record.comment_text||'';
   state.draftAssignedStaff = state.record.assigned_user_id;
   state.dirty = false;
   renderRecord(tab);
@@ -701,12 +756,12 @@ function renderRecord(tab = 'details') {
       fieldControl(column,value,index,{...r,assigned_user_id:state.draftAssignedStaff},true) +
       (evidence ? '<small>Enter a link or note here. Use Files & MOVs to upload supporting files.</small>' + movMarkup(r,column,true) : '') +
       '</label>';
-  }).join('') + (!state.editing || !writable.has(r.mappings.assigned) ? '<div class="display-field"><span class="field-label">Assigned staff</span><div class="display-value">'+esc(r.assigned_staff?r.assigned_staff.name+' · '+r.assigned_staff.department+(r.assigned_staff.archived_at||!r.assigned_staff.active?' (inactive account)':''):'Department assignment only')+'</div></div>' : '') + '</form>';
+  }).join('') + (!state.editing || !writable.has(r.mappings.assigned) ? '<div class="display-field"><span class="field-label">Assigned staff</span><div class="display-value">'+esc(r.assigned_staff?r.assigned_staff.name+' · '+r.assigned_staff.department+(r.assigned_staff.archived_at||!r.assigned_staff.active?' (inactive account)':''):'Department assignment only')+'</div></div>' : '') + commentField(state.draftComment,state.editing&&!deleted&&r.editable_columns.length,canonicalStatus(state.draft?.[r.mappings.status])) + (r.acknowledged_at?'<p class="acknowledgement-note full">Acknowledged by '+esc(r.acknowledged_by)+' · '+esc(formatDate(r.acknowledged_at))+'</p>':'')+'</form>';
   const files = '<section><div class="files">' +
     (r.files.length ? r.files.map(f => '<div class="file-row">' + icon('file') + fileLink(f) + '<small>' + esc(f.kind === 'MOV' ? 'MOV ' + f.slot : f.kind) + '</small></div>').join('') : '<p class="muted">No attachments yet.</p>') + '</div></section>' +
     (!deleted && r.editable_columns.length ? '<section class="section"><h3>Add a document or MOV</h3><form id="attachForm" class="grid">' +
-      '<label>File<input name="file" type="file" required></label><label>Attachment type<select name="kind"><option>MOV</option><option>Document</option></select></label><label>MOV column<select name="slot"><option value="1">MOV 1</option><option value="2">MOV 2</option></select></label>' +
-      '<div class="full"><button class="btn primary">Upload attachment</button></div></form></section>' : '');
+      '<label class="file-drop attachment-drop full"><strong>Drop supporting files here or choose files</strong><small>PDF, images, documents and other supporting files · Up to 25 MB each</small><input name="file" type="file" required multiple><span class="drop-selection" aria-live="polite"></span></label><label>Attachment type<select name="kind"><option>MOV</option><option>Document</option></select></label><label>MOV column<select name="slot"><option value="1">MOV 1</option><option value="2">MOV 2</option></select></label>' +
+      '<div class="full"><button class="btn primary">Upload attachments</button></div></form></section>' : '');
   const history = '<ol class="timeline">' + r.events.slice().reverse().map(e =>
     '<li><strong>' + esc(e.message) + '</strong><small>' + esc(e.actor) + ' · ' + esc(formatDate(e.at)) + '</small></li>').join('') + '</ol>';
   modal(state.editing ? 'Edit document' : 'View document', refOf(r),
@@ -717,7 +772,7 @@ function renderRecord(tab = 'details') {
     (tab === 'details' ? fields + sourceRecordInfo(r) + attachmentSummary(r) : tab === 'files' ? files : history),
     (editor() && !deleted && state.editing ? button('Delete', 'delete', 'danger', 'trash') : '') +
     (state.user.role==='staff' && !deleted && r.is_new ?
-      button('Acknowledge receipt', 'acknowledge', 'primary', 'check') : '') +
+      button('Acknowledge document', 'acknowledge', 'primary', 'check') : '') +
     button('Print slip', 'printslip', '', 'print') +
     '<a class="btn" href="/api/docx/' + r.id + '">' + icon('download') + 'Word template</a>' +
     (!state.editing && !deleted && r.editable_columns.length ?
@@ -729,18 +784,31 @@ function renderRecord(tab = 'details') {
     e.submitter.disabled = true;
     try {
       const cells = {...r.cells, ...Object.fromEntries(r.columns.filter(column => column !== r.mappings.reference && writable.has(column)).map(column => [column, formCell(e.target,r.columns.indexOf(column))]))};
-      await api('/api/save', {id:r.id, version:r.version, cells, ...(e.target.elements.assignedStaff?{assigned_user_id:e.target.elements.assignedStaff.value||null}:{})});
+      await api('/api/save', {id:r.id, version:r.version, cells, comment_text:e.target.elements.commentText?.value??state.draftComment, ...(e.target.elements.assignedStaff?{assigned_user_id:e.target.elements.assignedStaff.value||null}:{})});
       await loadData(); render(); await openRecord(r.id);
       toast('Document updated.');
     } catch (err) { showError(err); e.submitter.disabled = false; }
   };
   if ($('attachForm')) $('attachForm').onsubmit = async e => {
-    e.preventDefault(); e.submitter.disabled = true;
+    e.preventDefault();
+    const form=e.target,submit=e.submitter,files=[...form.elements.file.files];
+    if (state.dirty) return showError(Error('Save your document changes before uploading files.'));
+    if (files.some(file=>file.size>25*1024*1024)) return showError(Error('Each file must be up to 25 MB.'));
+    submit.disabled=true;form.elements.file.disabled=true;
+    const kind=form.elements.kind.value,slot=form.elements.slot.value;
+    let uploaded=0,version=r.version;
     try {
-      if (state.dirty) throw Error('Save your document changes before uploading a file.');
-      const fd = new FormData(e.target); fd.append('record', r.id); fd.append('version',r.version);
-      await api('/api/attach', fd); await loadData(); render(); await openRecord(r.id, 'files'); toast('Attachment uploaded.');
-    } catch (err) { showError(err); e.submitter.disabled = false; }
+      for (const file of files) {
+        submit.textContent='Uploading '+(uploaded+1)+' of '+files.length+'…';
+        const fd=new FormData();fd.append('file',file);fd.append('kind',kind);fd.append('slot',slot);fd.append('record',r.id);fd.append('version',version);
+        await api('/api/attach',fd);uploaded++;version++;
+      }
+      await loadData();render();await openRecord(r.id,'files');toast(uploaded+' attachment(s) uploaded.');
+    } catch(error) {
+      if(uploaded){await loadData();render();await openRecord(r.id,'files');}
+      showError(Error((uploaded?uploaded+' file(s) uploaded. ':'')+'Upload stopped at '+(files[uploaded]?.name||'the file')+': '+error.message));
+      submit.disabled=false;form.elements.file.disabled=false;submit.textContent='Upload attachments';
+    }
   };
 }
 /* Optional local source import, reviewed before registration. */
@@ -758,6 +826,7 @@ function captureNewDocument() {
   if (!draft || !form) return;
   draft.columns.forEach((column,index)=>{ if (form.elements['cell'+index]) draft.cells[column]=formCell(form,index); });
   draft.assigned_user_id=form.elements.assignedStaff?.value||null;
+  draft.comment_text=form.elements.commentText?.value||'';
 }
 function sourceDetails(info) {
   return '<div class="source-meta">'+[['From',info.sender],['To',info.to],['Sent',info.sent],['Original reference',info.source_reference]].filter(([,v])=>v).map(([k,v])=>'<div><span>'+k+'</span><strong>'+esc(v)+'</strong></div>').join('')+'</div>'+
@@ -777,8 +846,8 @@ function renderNewDocument() {
   const fields=columns.filter(c=>!excluded.has(c));
   const ordered=[mappings.subject,mappings.hard,mappings.status,mappings.assigned,mappings.action,...fields.filter(c=>![mappings.subject,mappings.hard,mappings.status,mappings.assigned,mappings.action].includes(c))].filter(c=>fields.includes(c));
   const source=draft.source;
-  const importPanel='<section class="source-intake"><div class="source-intake-head"><span class="source-intake-icon">'+icon('upload')+'</span><div><h3>'+ (source?'Source file ready for review':'Start from an email or file')+'</h3><p>'+ (source?esc(source.info.filename):'Optional: import a saved email, PDF, Word document, Excel, or another file to fill available details.')+'</p></div>'+button(source?'Replace file':'Import email or file','sourcefile',source?'':'primary','upload')+'</div>'+
-    '<input id="newSourceFile" type="file" aria-label="Import email or document source" hidden>'+
+  const importPanel='<section class="source-intake file-drop"><div class="source-intake-head"><span class="source-intake-icon">'+icon('upload')+'</span><div><h3>'+ (source?'Source file ready for review':'Start from an email or file')+'</h3><p>'+ (source?esc(source.info.filename):'Optional: import a saved email, PDF, Word document, Excel, or another file to fill available details.')+'</p></div>'+button(source?'Replace file':'Import email or file','sourcefile',source?'':'primary','upload')+'</div>'+
+    '<input id="newSourceFile" type="file" aria-label="Import email or document source" hidden><p class="source-drop-hint">Drag and drop an email or file here · One source file at a time · Up to 25 MB</p>'+
     (source?'<div class="source-intake-body">'+source.warnings.map(w=>'<p class="notice">'+esc(w)+'</p>').join('')+
       (source.candidates.length>1?'<label>Source row to register<select id="sourceRow">'+opts(source.candidates.map((c,i)=>[String(i),c.label]),String(draft.sourceRow))+'</select></label>':'')+
       sourceDetails(source.info)+
@@ -787,7 +856,7 @@ function renderNewDocument() {
       '<p class="source-review-note">Review the subject and routing below. The original source and extracted attachments will be saved with this document.</p></div>':'')+'</section>';
   modal('New document',collection?collection.name:'Register correspondence for routing',importPanel+
     '<form id="newForm" class="grid document-fields new-document-form"><div class="reference-band"><span>Reference no.</span><strong>Generated automatically on save</strong><small>Action Taken and supporting MOVs can be added after registration.</small></div>'+
-    ordered.map(c=>'<label '+([mappings.subject,mappings.action].includes(c)?'class="full"':'')+'>'+esc(c)+fieldControl(c,draft.cells[c]||'',columns.indexOf(c),record,true)+'</label>').join('')+'</form>',
+    ordered.map(c=>'<label '+([mappings.subject,mappings.action].includes(c)?'class="full"':'')+'>'+esc(c)+fieldControl(c,draft.cells[c]||'',columns.indexOf(c),record,true)+'</label>').join('')+commentField(draft.comment_text||'',true,canonicalStatus(draft.cells[mappings.status]))+'</form>',
     button('Cancel','close')+'<button form="newForm" class="btn primary">Register document</button>','document');
   $('newForm').elements['cell'+columns.indexOf(mappings.subject)].required=true;
   $('newSourceFile').onchange=async e=>{
@@ -809,7 +878,7 @@ function renderNewDocument() {
     e.preventDefault();e.submitter.disabled=true;
     try {
       captureNewDocument();
-      const result=await api('/api/new',{collection:collection?.id,cells:draft.cells,assigned_user_id:draft.assigned_user_id,source_token:draft.source?.token,source_row:draft.sourceRow});
+      const result=await api('/api/new',{collection:collection?.id,cells:draft.cells,comment_text:draft.comment_text||'',assigned_user_id:draft.assigned_user_id,source_token:draft.source?.token,source_row:draft.sourceRow});
       state.dirty=false;state.newDraft=null;state.page='documents';state.collection=result.collection;state.department='';
       await loadData();render();await openRecord(result.id);toast('Document registered.');
     } catch(error) {showError(error);e.submitter.disabled=false;}
@@ -878,15 +947,18 @@ function captureDraft() {
     if (form.elements['cell'+index]) state.draft[state.record.columns[index]] = formCell(form,index);
   }
   if (form.elements.assignedStaff) state.draftAssignedStaff=form.elements.assignedStaff.value||null;
-  state.dirty = state.record.columns.some(column => state.draft[column] !== (state.record.cells[column] || '')) || String(state.draftAssignedStaff||'')!==String(state.record.assigned_user_id||'');
+  if (form.elements.commentText) state.draftComment=form.elements.commentText.value;
+  state.dirty = state.draftComment!==(state.record.comment_text||'') || state.record.columns.some(column => state.draft[column] !== (state.record.cells[column] || '')) || String(state.draftAssignedStaff||'')!==String(state.record.assigned_user_id||'');
 }
 document.addEventListener('input', e => {
   if (e.target.closest('#newForm')) {captureNewDocument();state.dirty=true;}
   if (e.target.closest('#recordForm')) captureDraft();
+  updateCommentVisibility();
 });
 document.addEventListener('change', e => {
   if (e.target.closest('#newForm')) {captureNewDocument();state.dirty=true;}
   if (e.target.closest('#recordForm')) captureDraft();
+  updateCommentVisibility();
 });
 $('dialog').addEventListener('cancel', e => {
   if (state.dirty && !window.confirm('Discard unsaved changes to this document?')) e.preventDefault();
@@ -1113,14 +1185,14 @@ function guide() {
     '<div class="help"><ol><li><strong>ORD logs in and imports a file.</strong> Choose the existing Excel matrix or incoming document. Check the preview and confirm the import.</li>' +
     '<li><strong>Start from an email or file.</strong> New document &gt; Import email or file fills available details from a saved EML/MSG, PDF, Word document, Excel/CSV or another source. Review the subject and routing before registering. Emails retain their message and attachments; Excel/CSV lets you choose one source row.</li>' +
     '<li><strong>Review and route.</strong> In Document register, choose View to read a record or Edit to update it. Check its subject and reference number, choose a department, optionally select one of its staff, choose the requested action, then save. Expand Departments to view each department’s documents.</li>' +
-    '<li><strong>The department acts.</strong> Staff see My assignments and the shared Department inbox separately. Personal assignments are visible only to the assigned account, administrators, ORD and records officers. Use Acknowledge receipt to remove your New badge; opening a document does not acknowledge it. Record Action Taken and attach MOVs as needed.</li>' +
-    '<li><strong>Dashboard and accounts.</strong> Department summary opens each department’s documents. The six cards filter saved statuses, including For Comment and For Signature. Account management groups current and archived accounts by department, with search and department filtering.</li><li><strong>Change password.</strong> In Settings, enter your current password, generated recovery code, new password and confirmation. Save the replacement code displayed after success. If you lost your code, request a replacement from the administrator. Other sessions for your account will end.</li>' +
+    '<li><strong>The department acts.</strong> Staff see My assignments and the shared Department inbox separately. Personal assignments are visible only to the assigned account, administrators, ORD and records officers. Use Acknowledge document to remove New. One member acknowledges for the shared department inbox; personal assignments require the assigned account. Opening a document does not acknowledge it. Record Action Taken and attach MOVs as needed.</li>' +
+    '<li><strong>Dashboard and accounts.</strong> Department summary opens each department’s documents. Choose a year on the dashboard or register to filter counts and documents. The six cards filter saved statuses. For Comment reveals a comments/recommendations field; saved comments and their authors remain in history. Signatures remain on paper; the officer updates the status after signing. Account management groups current and archived accounts by department, with search and department filtering.</li><li><strong>Change password.</strong> In Settings, enter your current password, generated recovery code, new password and confirmation. Save the replacement code displayed after success. If you lost your code, request a replacement from the administrator. Other sessions for your account will end.</li>' +
     '<li><strong>Update and print.</strong> Save the status. Print slip automatically opens the browser print dialog using the supplied Word template. Use Select documents and click rows to print different documents on a shared NCSC routing sheet. For two or more selected documents, review/edit the print-only subject, date, time and routing text, then choose Print shared slip. Saved records and references stay unchanged. The host needs Microsoft Word or LibreOffice.</li>' +
     '<li><strong>Delete and restore.</strong> Records officers can move individual or selected documents to Deleted documents. Restore returns them with their files and history. Use Select documents and Select all shown in Deleted documents to restore a batch. Only administrators can delete permanently; a confirmation is required. Imported files also supports Select files and Select all; deleting a source moves its active rows to Deleted documents.</li>' +
     '<li><strong>Retire staff access.</strong> Administrators can Archive an account in Account management. Restore from Archived accounts, then Edit to enable it. Administrators can permanently delete archived individual logins after confirmation; history and private assignments remain protected.</li>' +
     '<li><strong>Print a readable matrix.</strong> Print matrix opens the print dialog in A4 landscape. Routing and follow-up fields use separate sections with the same reference numbers. Extra imported columns continue in further sections. Table entries consistently use Arial 10 pt.</li></ol>' +
     '<p class="notice">Readable PDFs can produce tables or page text. Scanned pages require manual encoding. Review the preview for every new file layout.</p>' +
-    '<p style="margin-top:15px">Tracking columns stay in the same order for every worksheet. Additional imported fields follow them. New reference numbers are automatic. Files &amp; MOVs lets you choose MOV 1 or MOV 2 for each upload.</p></div>',
+    '<p style="margin-top:15px">Tracking columns stay in the same order for every worksheet. Additional imported fields follow them. New reference numbers are automatic. Drag files into the import, source or attachment area. Files &amp; MOVs accepts multiple supporting files and lets you choose MOV 1 or MOV 2. Printed remarks come from Action Taken.</p></div>',
     button('Got it', 'close', 'primary'));
 }
 function downloadText(name, text) {
@@ -1217,7 +1289,7 @@ document.addEventListener('click', async e => {
       case 'logout':
         await api('/api/logout', {}); state.selected.clear(); state.selecting=false; state.collection = ''; state.page = 'dashboard'; state.settingsOpen = false;
         state.department='';state.departmentsOpen=false;state.deletedSelected.clear();state.importSelected.clear();state.deletedSelecting=false;state.importSelecting=false;
-        state.inboxScope='all';
+        state.inboxScope='all';state.year='';
         accountScope='current';accountDepartment='';accountQuery='';expandedAccountDepartments.clear();
         $('dialog').close(); await start(); break;
       case 'forgot': forgotPassword(); break;
@@ -1270,14 +1342,14 @@ document.addEventListener('click', async e => {
       case 'editrecord': state.editing = true; renderRecord(); break;
       case 'canceledit':
         if (!state.dirty || window.confirm('Discard unsaved changes to this document?')) {
-          state.editing = false; state.draft = {...state.record.cells};state.draftAssignedStaff=state.record.assigned_user_id; state.dirty = false; renderRecord();
+          state.editing = false; state.draft = {...state.record.cells};state.draftComment=state.record.comment_text||'';state.draftAssignedStaff=state.record.assigned_user_id; state.dirty = false; renderRecord();
         }
         break;
       case 'acknowledge': {
         const r = state.record;
         if (state.dirty) { toast('Save your changes before acknowledging receipt.'); break; }
         await api('/api/acknowledge', {id:r.id, version:r.version});
-        await loadData(); render(); await openRecord(r.id); toast('Receipt acknowledged.');
+        await loadData(); render(); await openRecord(r.id); toast('Document acknowledged.');
         break;
       }
       case 'delete': deleteDocument(); break;
@@ -1299,7 +1371,7 @@ document.addEventListener('click', async e => {
       case 'addaccount': await addAccount(); break;
       case 'adddepartment': addDepartment(); break;
       case 'guide': guide(); break;
-      case 'clear': state.collection = ''; state.query = ''; state.status = ''; renderDocuments(); break;
+      case 'clear': state.collection = ''; state.query = ''; state.status = ''; state.year=''; renderDocuments(); break;
       case 'refresh': await loadData(); render(); toast('Register refreshed.'); break;
       case 'printselected': printSlips(selectedRows().map(r=>r.id)); break;
       case 'selectmode': if(state.page==='deleted')state.deletedSelecting=!state.deletedSelecting;else state.selecting=!state.selecting; renderDocuments(); break;
