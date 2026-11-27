@@ -36,3 +36,12 @@
   panel gradient and responsive narrow-screen rules; never disable browser zoom.
 - Before a future change to shared styles, review the login at 1366x768 and a
   narrow viewport to ensure no shared selector changes its size or placement.
+
+## Workspace presentation and controls
+
+- Workspace styling is isolated in `assets/workspace.css` and scoped to
+  `body[data-workspace]`; it must not affect the protected login or printed pages.
+- `assets/ui.js` enhances native select/date/file fields. Preserve the underlying
+  fields, names, values, validation and change/input events used by the application.
+  New controls must work with keyboard navigation and reduced-motion preferences.
+- Keep all UI assets local so the office LAN workspace needs no internet or CDN.

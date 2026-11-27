@@ -7,6 +7,10 @@ flows, NCSC assets, routing-slip template and sample files are retained.
 
 ## Current application
 
+The workspace uses soft NCSC gradients, accented summaries, accessible searchable
+choices and calendar pickers. All styles and controls are bundled locally.
+The separate login design and official print templates are preserved.
+
 - Individual staff logins, personal/shared document access and grouped accounts.
 - Persistent department registration and permanent archived-login removal that
   preserves audit history and keeps private assignments restricted.
