@@ -205,18 +205,18 @@ function login(setup = false) {
       passwordInput('password', 'Password', 'current-password', true) +
       '<div class="login-links"><button type="button" class="btn link" data-action="forgot">Forgot password?</button></div>' +
       '<div class="error" id="loginError" role="alert" hidden></div><button class="btn primary login-submit">Log in</button></form>';
-  $('app').innerHTML = '<main class="login"><div class="login-shell"><section class="login-story" aria-labelledby="loginTitle">' +
+  $('app').innerHTML = '<main class="login"><div class="login-shell">' +
     '<header class="login-header"><div class="login-brand">' +
     '<span class="login-seal"><img src="/assets/ncsc-official-logo.jpg" alt="National Commission of Senior Citizens seal" width="1995" height="1995"></span>' +
     '<div class="login-agency"><span>Republic of the Philippines</span>' +
     '<strong>NATIONAL COMMISSION<br>OF SENIOR CITIZENS</strong></div></div>' +
     '<div class="login-office">Regional Office I</div></header>' +
-    '<div class="login-title-block"><h1 id="loginTitle"><span>Document Routing &amp;</span>' +
+    '<div class="login-content"><section class="login-story" aria-labelledby="loginTitle"><div class="login-title-block"><h1 id="loginTitle"><span>Document Routing &amp;</span>' +
     '<span class="login-title-highlight">Tracking System</span></h1><p class="login-tagline">Track. Route. Manage.</p></div></section>' +
     '<section class="login-panel" aria-labelledby="loginHeading">' +
     '<h2 id="loginHeading">' + (setup ? 'Set up your workspace' : 'Welcome back') + '</h2><p class="intro">' +
     (setup ? 'Create your administrator account under ORD to get started.' : 'Log in to your NCSC RO1 workspace.') +
-    '</p>' + form + '<p class="login-foot">For authorized NCSC personnel only</p></section></div></main>';
+    '</p>' + form + '<p class="login-foot">For authorized NCSC personnel only</p></section></div></div></main>';
   $('loginForm').onsubmit = async e => {
     e.preventDefault();
     e.submitter.disabled = true;

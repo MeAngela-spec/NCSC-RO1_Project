@@ -73,7 +73,7 @@ def run():
             else:
                 raise AssertionError("A finished database context kept its connection open")
             assert not read_health(service.local_url)["configured"]
-            for filename in ["index.html", "printing.html", "assets/app.js", "assets/style.css", "assets/logo.jpg",
+            for filename in ["index.html", "printing.html", "assets/app.js", "assets/style.css", "assets/login.css", "assets/logo.jpg",
                              "assets/matrix-letterhead.png", "assets/matrix-print.js", "templates/routing-slip.docx"]:
                 assert (app.ROOT / filename).is_file(), filename
             passed("Application resource paths and initial workspace health")

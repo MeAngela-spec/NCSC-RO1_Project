@@ -981,7 +981,7 @@ class Handler(BaseHTTPRequestHandler):
     def get(self):
         parsed = urllib.parse.urlparse(self.path)
         path, query = parsed.path, urllib.parse.parse_qs(parsed.query)
-        if path in ("/", "/assets/style.css", "/assets/app.js", "/assets/logo.jpg", "/assets/ncsc-banner.jpg", "/assets/login-photo.jpg", "/assets/login-seniors.png", "/assets/login-background.jpg", "/assets/ncsc-official-logo.jpg", "/assets/login-waves.svg", "/assets/login-geometric.png", "/assets/printing.js", "/assets/matrix-letterhead.png", "/assets/matrix-print.js"):
+        if path in ("/", "/assets/style.css", "/assets/login.css", "/assets/app.js", "/assets/logo.jpg", "/assets/ncsc-banner.jpg", "/assets/login-photo.jpg", "/assets/login-seniors.png", "/assets/login-background.jpg", "/assets/ncsc-official-logo.jpg", "/assets/login-waves.svg", "/assets/login-geometric.png", "/assets/printing.js", "/assets/matrix-letterhead.png", "/assets/matrix-print.js"):
             file = ROOT / ("index.html" if path == "/" else path.lstrip("/"))
             self.respond(200, file.read_bytes(), mimetypes.guess_type(file.name)[0] or "application/octet-stream")
             return
