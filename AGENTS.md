@@ -29,10 +29,10 @@
 - Keep login styles isolated in `assets/login.css`, loaded after `assets/style.css`.
   Preserve the login DOM in `login()` in `assets/app.js`, its official logo and
   geometric background. Nonvisual authentication fixes must preserve these visuals.
-- Desktop branding stays together at the upper left: 48 px horizontal / 32 px top
-  inset, 60 px seal, 12 px republic text, 16 px agency text, 15 px regional-office text.
-  The form is capped at 380 px wide, system title at 42 px, and welcome title at
-  28 px. These sizes must not grow with viewport width. Keep the blue/white panel
-  gradient and responsive narrow-screen rules; never disable browser zoom.
+- Desktop branding stays together at the upper left: 84 px horizontal / 32 px top
+  inset, 72 px seal, 14 px republic text, 19 px agency text, 18 px regional-office text.
+  The form is capped at 440 px wide, system title at 48 px, and welcome title at
+  32 px. Keep these sizes independent of viewport width. Preserve the blue/white
+  panel gradient and responsive narrow-screen rules; never disable browser zoom.
 - Before a future change to shared styles, review the login at 1366x768 and a
   narrow viewport to ensure no shared selector changes its size or placement.
